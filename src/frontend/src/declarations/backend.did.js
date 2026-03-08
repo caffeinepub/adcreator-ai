@@ -8,6 +8,11 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const UserRole = IDL.Variant({
+  'admin' : IDL.Null,
+  'user' : IDL.Null,
+  'guest' : IDL.Null,
+});
 export const BusinessType = IDL.Variant({
   'gym' : IDL.Null,
   'retail' : IDL.Null,
@@ -15,18 +20,96 @@ export const BusinessType = IDL.Variant({
   'salon' : IDL.Null,
   'restaurant' : IDL.Null,
 });
+export const AdminAnalytics = IDL.Record({
+  'totalAdsGenerated' : IDL.Nat,
+  'platformCounts' : IDL.Vec(
+    IDL.Record({ 'count' : IDL.Nat, 'platform' : IDL.Text })
+  ),
+  'totalImagesGenerated' : IDL.Nat,
+  'topBusinessTypes' : IDL.Vec(
+    IDL.Record({ 'count' : IDL.Nat, 'businessType' : IDL.Text })
+  ),
+  'activeUsersToday' : IDL.Nat,
+  'weeklyActivity' : IDL.Vec(
+    IDL.Record({ 'day' : IDL.Text, 'count' : IDL.Nat })
+  ),
+  'totalUsers' : IDL.Nat,
+});
+export const Ad = IDL.Record({
+  'id' : IDL.Nat,
+  'tone' : IDL.Text,
+  'businessName' : IDL.Text,
+  'platform' : IDL.Text,
+  'captionShort' : IDL.Text,
+  'imageUrl' : IDL.Opt(IDL.Text),
+  'savedAt' : IDL.Int,
+  'captionLong' : IDL.Text,
+});
+export const Feedback = IDL.Record({
+  'id' : IDL.Nat,
+  'userName' : IDL.Text,
+  'userEmail' : IDL.Text,
+  'submittedAt' : IDL.Int,
+  'message' : IDL.Text,
+});
+export const UserWithAds = IDL.Record({
+  'principal' : IDL.Principal,
+  'name' : IDL.Text,
+  'adCount' : IDL.Nat,
+  'registeredAt' : IDL.Int,
+});
+export const UserProfile = IDL.Record({ 'name' : IDL.Text });
+export const DailyUsageStats = IDL.Record({
+  'count' : IDL.Nat,
+  'resetAt' : IDL.Int,
+  'limit' : IDL.Nat,
+});
+export const SaveAdInput = IDL.Record({
+  'tone' : IDL.Text,
+  'businessName' : IDL.Text,
+  'platform' : IDL.Text,
+  'captionShort' : IDL.Text,
+  'imageUrl' : IDL.Opt(IDL.Text),
+  'captionLong' : IDL.Text,
+});
+export const UpdateAdsInput = IDL.Record({ 'ads' : IDL.Vec(Ad) });
 
 export const idlService = IDL.Service({
+  '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'deleteAd' : IDL.Func([IDL.Nat], [], []),
   'generateAd' : IDL.Func(
       [BusinessType, IDL.Text, IDL.Text, IDL.Opt(IDL.Nat)],
       [IDL.Text],
       [],
     ),
+  'getAdminAnalytics' : IDL.Func([], [AdminAnalytics], ['query']),
+  'getAdsForCaller' : IDL.Func([], [IDL.Vec(Ad)], ['query']),
+  'getAllFeedback' : IDL.Func([], [IDL.Vec(Feedback)], ['query']),
+  'getAllUsersForAdmin' : IDL.Func([], [IDL.Vec(UserWithAds)], ['query']),
+  'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+  'getDailyUsage' : IDL.Func([], [DailyUsageStats], ['query']),
+  'getUserProfile' : IDL.Func(
+      [IDL.Principal],
+      [IDL.Opt(UserProfile)],
+      ['query'],
+    ),
+  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'saveAd' : IDL.Func([SaveAdInput], [], []),
+  'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+  'submitFeedback' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'updateAllAds' : IDL.Func([UpdateAdsInput], [], []),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const UserRole = IDL.Variant({
+    'admin' : IDL.Null,
+    'user' : IDL.Null,
+    'guest' : IDL.Null,
+  });
   const BusinessType = IDL.Variant({
     'gym' : IDL.Null,
     'retail' : IDL.Null,
@@ -34,13 +117,86 @@ export const idlFactory = ({ IDL }) => {
     'salon' : IDL.Null,
     'restaurant' : IDL.Null,
   });
+  const AdminAnalytics = IDL.Record({
+    'totalAdsGenerated' : IDL.Nat,
+    'platformCounts' : IDL.Vec(
+      IDL.Record({ 'count' : IDL.Nat, 'platform' : IDL.Text })
+    ),
+    'totalImagesGenerated' : IDL.Nat,
+    'topBusinessTypes' : IDL.Vec(
+      IDL.Record({ 'count' : IDL.Nat, 'businessType' : IDL.Text })
+    ),
+    'activeUsersToday' : IDL.Nat,
+    'weeklyActivity' : IDL.Vec(
+      IDL.Record({ 'day' : IDL.Text, 'count' : IDL.Nat })
+    ),
+    'totalUsers' : IDL.Nat,
+  });
+  const Ad = IDL.Record({
+    'id' : IDL.Nat,
+    'tone' : IDL.Text,
+    'businessName' : IDL.Text,
+    'platform' : IDL.Text,
+    'captionShort' : IDL.Text,
+    'imageUrl' : IDL.Opt(IDL.Text),
+    'savedAt' : IDL.Int,
+    'captionLong' : IDL.Text,
+  });
+  const Feedback = IDL.Record({
+    'id' : IDL.Nat,
+    'userName' : IDL.Text,
+    'userEmail' : IDL.Text,
+    'submittedAt' : IDL.Int,
+    'message' : IDL.Text,
+  });
+  const UserWithAds = IDL.Record({
+    'principal' : IDL.Principal,
+    'name' : IDL.Text,
+    'adCount' : IDL.Nat,
+    'registeredAt' : IDL.Int,
+  });
+  const UserProfile = IDL.Record({ 'name' : IDL.Text });
+  const DailyUsageStats = IDL.Record({
+    'count' : IDL.Nat,
+    'resetAt' : IDL.Int,
+    'limit' : IDL.Nat,
+  });
+  const SaveAdInput = IDL.Record({
+    'tone' : IDL.Text,
+    'businessName' : IDL.Text,
+    'platform' : IDL.Text,
+    'captionShort' : IDL.Text,
+    'imageUrl' : IDL.Opt(IDL.Text),
+    'captionLong' : IDL.Text,
+  });
+  const UpdateAdsInput = IDL.Record({ 'ads' : IDL.Vec(Ad) });
   
   return IDL.Service({
+    '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'deleteAd' : IDL.Func([IDL.Nat], [], []),
     'generateAd' : IDL.Func(
         [BusinessType, IDL.Text, IDL.Text, IDL.Opt(IDL.Nat)],
         [IDL.Text],
         [],
       ),
+    'getAdminAnalytics' : IDL.Func([], [AdminAnalytics], ['query']),
+    'getAdsForCaller' : IDL.Func([], [IDL.Vec(Ad)], ['query']),
+    'getAllFeedback' : IDL.Func([], [IDL.Vec(Feedback)], ['query']),
+    'getAllUsersForAdmin' : IDL.Func([], [IDL.Vec(UserWithAds)], ['query']),
+    'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
+    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
+    'getDailyUsage' : IDL.Func([], [DailyUsageStats], ['query']),
+    'getUserProfile' : IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(UserProfile)],
+        ['query'],
+      ),
+    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'saveAd' : IDL.Func([SaveAdInput], [], []),
+    'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
+    'submitFeedback' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'updateAllAds' : IDL.Func([UpdateAdsInput], [], []),
   });
 };
 

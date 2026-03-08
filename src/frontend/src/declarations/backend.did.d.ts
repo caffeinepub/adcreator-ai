@@ -10,16 +10,82 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface Ad {
+  'id' : bigint,
+  'tone' : string,
+  'businessName' : string,
+  'platform' : string,
+  'captionShort' : string,
+  'imageUrl' : [] | [string],
+  'savedAt' : bigint,
+  'captionLong' : string,
+}
+export interface AdminAnalytics {
+  'totalAdsGenerated' : bigint,
+  'platformCounts' : Array<{ 'count' : bigint, 'platform' : string }>,
+  'totalImagesGenerated' : bigint,
+  'topBusinessTypes' : Array<{ 'count' : bigint, 'businessType' : string }>,
+  'activeUsersToday' : bigint,
+  'weeklyActivity' : Array<{ 'day' : string, 'count' : bigint }>,
+  'totalUsers' : bigint,
+}
 export type BusinessType = { 'gym' : null } |
   { 'retail' : null } |
   { 'cafe' : null } |
   { 'salon' : null } |
   { 'restaurant' : null };
+export interface DailyUsageStats {
+  'count' : bigint,
+  'resetAt' : bigint,
+  'limit' : bigint,
+}
+export interface Feedback {
+  'id' : bigint,
+  'userName' : string,
+  'userEmail' : string,
+  'submittedAt' : bigint,
+  'message' : string,
+}
+export interface SaveAdInput {
+  'tone' : string,
+  'businessName' : string,
+  'platform' : string,
+  'captionShort' : string,
+  'imageUrl' : [] | [string],
+  'captionLong' : string,
+}
+export interface UpdateAdsInput { 'ads' : Array<Ad> }
+export interface UserProfile { 'name' : string }
+export type UserRole = { 'admin' : null } |
+  { 'user' : null } |
+  { 'guest' : null };
+export interface UserWithAds {
+  'principal' : Principal,
+  'name' : string,
+  'adCount' : bigint,
+  'registeredAt' : bigint,
+}
 export interface _SERVICE {
+  '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'deleteAd' : ActorMethod<[bigint], undefined>,
   'generateAd' : ActorMethod<
     [BusinessType, string, string, [] | [bigint]],
     string
   >,
+  'getAdminAnalytics' : ActorMethod<[], AdminAnalytics>,
+  'getAdsForCaller' : ActorMethod<[], Array<Ad>>,
+  'getAllFeedback' : ActorMethod<[], Array<Feedback>>,
+  'getAllUsersForAdmin' : ActorMethod<[], Array<UserWithAds>>,
+  'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
+  'getCallerUserRole' : ActorMethod<[], UserRole>,
+  'getDailyUsage' : ActorMethod<[], DailyUsageStats>,
+  'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
+  'isCallerAdmin' : ActorMethod<[], boolean>,
+  'saveAd' : ActorMethod<[SaveAdInput], undefined>,
+  'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
+  'submitFeedback' : ActorMethod<[string, string], undefined>,
+  'updateAllAds' : ActorMethod<[UpdateAdsInput], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

@@ -2,32 +2,81 @@
 
 ## Current State
 
-The app has a `PhotoAdView` component accessible from the landing page via "Generar Anuncio desde Foto". It includes a file input with `capture="environment"` (which forces the camera on most mobile browsers), a drag-and-drop zone, a category auto-detector based on filename, and ad generation using existing `generateAd()` logic. The result shows the uploaded image as an ad layout with a watermark overlay, an Instagram preview card, a generated caption, hashtag chips, and action buttons (save, share, download, regenerate).
+- Full-stack app with Motoko backend + React/TypeScript frontend.
+- User authentication via Internet Identity (Google + Email).
+- Ad generation form: business name, type, city, promo, tone, platform, caption length.
+- "My Ads" section: backend-stored per-user ads with copy, download, delete.
+- Photo Ad feature: upload a photo and generate an ad from it.
+- Admin Dashboard: analytics, users table, platform/business-type charts.
+- Per-user profiles stored in backend.
+- No freemium limits, no feedback system.
 
 ## Requested Changes (Diff)
 
 ### Add
-- A second upload button explicitly labeled "Elegir desde Galería" that opens the native photo library (using `<input type="file" accept="image/*">` WITHOUT the `capture` attribute) — this is the key change for gallery access on mobile.
-- A clear two-option UI in the upload zone: one button for "Cámara" (with `capture="environment"`) and one for "Galería" (no capture attribute), so users on mobile can choose their source explicitly.
-- Smooth step indicator or status messages during "analyzing" to make the process feel like real AI analysis (steps: uploading → analyzing → generating caption → done).
-- On the result screen, show a clear "Instagram-style preview" with the user's uploaded photo as the background of the post, with the business name and generated caption overlaid on it — this creates the feel of a "promotional ad layout using the uploaded photo."
+
+1. **Freemium daily ad limit (backend)**
+   - Track per-user daily ad generation count with a timestamp.
+   - Max 3 ads per 24-hour window for all users (no paid tier yet — just the cap).
+   - New query: `getDailyAdUsage()` → returns `{ count: Nat; limit: Nat; resetAt: Int }`.
+   - `saveAd` increments the counter; a new `checkAndIncrementDailyUsage()` shared function validates and increments atomically (traps if limit reached).
+
+2. **Feedback system (backend)**
+   - New type: `Feedback { id: Nat; userEmail: Text; message: Text; submittedAt: Int; userName: Text }`.
+   - `submitFeedback(email: Text, message: Text)` — any authenticated user can submit; stores in a global feedback store.
+   - `getAllFeedback()` — admin-only query returning all feedback entries sorted by newest first.
+
+3. **Freemium limit UI (frontend)**
+   - In `handleGenerateAd`, call `getDailyAdUsage()` before generating. If count >= limit, show a friendly modal/alert:
+     "You've reached the free daily limit of 3 ads. Upgrade to AdCreator AI Pro for unlimited ads."
+   - Show a subtle usage counter in the form header: "X/3 ads used today".
+   - The limit banner should be dismissible and friendly.
+
+4. **"Send Feedback" button + form (frontend)**
+   - Add a "Send Feedback" button in the `UserAvatarChip` dropdown menu (visible on all views).
+   - When tapped, open a modal with:
+     - Email field (pre-filled with user info if available).
+     - Message textarea (suggestions / problems / general feedback).
+     - Submit button.
+   - On success, show a toast "¡Gracias por tu feedback!".
+
+5. **Admin feedback section (frontend)**
+   - In `AdminDashboardView`, add a new section below the Users table: "Feedback de Usuarios".
+   - Shows a list of all submitted feedback entries with: user name, email, message (truncated), and date.
+   - Admin calls `getAllFeedback()` to load the list.
+   - Each entry is expandable to show the full message.
 
 ### Modify
-- The existing file `<input>` with `capture="environment"` should become the "Cámara" button's dedicated input.
-- Add a separate `<input>` without `capture` for the "Galería" button.
-- The upload zone currently only shows a single "Elegir Foto" button — change it to show two clearly distinct buttons side by side: 📷 Cámara and 🖼️ Galería.
-- The generating/loading state messages should cycle through steps: "Analizando imagen...", "Detectando producto...", "Generando caption...", "¡Listo!" to simulate AI analysis flow.
-- Remove `capture="environment"` from the "Galería" input so iOS Safari opens the photo picker (not the camera).
+
+- `saveAd` backend: call `checkAndIncrementDailyUsage` before saving the ad.
+- `UserAvatarChip`: add "Send Feedback" item to the dropdown.
+- `AdminDashboardView`: add feedback section query and UI.
+- `backend.d.ts`: add new function signatures for feedback + daily usage.
 
 ### Remove
-- Nothing removed; only improvements to existing `PhotoAdView`.
+
+- Nothing removed.
 
 ## Implementation Plan
 
-1. In `PhotoAdView`, add a second `useRef<HTMLInputElement>` for the gallery input.
-2. Add two separate `<input type="file">` elements: one with `capture="environment"` (camera), one without `capture` (gallery).
-3. Replace the single "Elegir Foto" button in the drop zone with two side-by-side buttons: "📷 Cámara" (triggers camera input) and "🖼️ Galería" (triggers gallery input).
-4. Add animated step messages during the `isGenerating` state that cycle through analysis steps with a brief delay between each.
-5. In the result section, update the "Tu Foto como Anuncio" block to show the uploaded photo with an ad overlay (business name badge + caption text overlay on the image) to simulate a professional ad layout.
-6. Ensure all new interactive elements have proper `data-ocid` markers.
-7. Validate with typecheck and build.
+1. Update `main.mo`:
+   - Add daily usage tracking map `userDailyAdCounts: Map<Principal, {count: Nat; dayTimestamp: Int}>`.
+   - Add `checkAndIncrementDailyUsage(caller)` private func (resets if 24h elapsed, traps if >=3).
+   - Add `getDailyAdUsage()` public query.
+   - Call `checkAndIncrementDailyUsage` inside `saveAd`.
+   - Add `Feedback` type and `feedbackStore: Array<Feedback>` (global list).
+   - Add `submitFeedback(email, message)` — auth check, store entry.
+   - Add `getAllFeedback()` — admin-only query.
+
+2. Regenerate `backend.d.ts` with new types/functions.
+
+3. Frontend — freemium limit:
+   - Add `useDailyAdUsage` hook that queries `getDailyAdUsage()`.
+   - In `FormView`, display usage counter near submit button.
+   - In `handleGenerateAd` (App.tsx), check limit before generating; show limit modal if reached.
+
+4. Frontend — feedback:
+   - Add `FeedbackModal` component.
+   - Update `UserAvatarChip` to accept `onFeedback` prop and show "Send Feedback" menu item.
+   - Wire up mutation to `submitFeedback`.
+   - In `AdminDashboardView`, add `getAllFeedback` query and feedback list section.

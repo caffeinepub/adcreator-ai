@@ -1,6 +1,19 @@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +27,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { Textarea } from "@/components/ui/textarea";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
@@ -27,23 +41,42 @@ import {
   ImageIcon,
   Layers,
   Loader2,
+  Lock,
+  LogOut,
+  Mail,
   MessageCircle,
+  MessageSquare,
   RefreshCw,
   Send,
   Share2,
   Sparkles,
+  Trash2,
+  User,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import type { Ad, DailyUsageStats } from "./backend";
+import { UserRole } from "./backend";
+import { AdminDashboardView } from "./components/AdminDashboardView";
+import { FeedbackModal } from "./components/FeedbackModal";
+import { useActor } from "./hooks/useActor";
+import { useInternetIdentity } from "./hooks/useInternetIdentity";
 
 /* ═══════════════════════════════════════
    TYPES
 ═══════════════════════════════════════ */
 
 type AdTone = "profesional" | "urgente" | "divertido" | "promocion";
-type View = "landing" | "home" | "form" | "result" | "myads" | "photo_ad";
+type View =
+  | "landing"
+  | "home"
+  | "form"
+  | "result"
+  | "myads"
+  | "photo_ad"
+  | "admin";
 type Platform = "instagram" | "facebook" | "tiktok";
 type CaptionLength = "short" | "long";
 
@@ -674,10 +707,436 @@ function AdImageFullscreenModal({
 }
 
 /* ═══════════════════════════════════════
+   USER AVATAR CHIP
+═══════════════════════════════════════ */
+
+function UserAvatarChip({
+  onLogout,
+  userName,
+  onFeedback,
+}: {
+  onLogout: () => void;
+  userName: string;
+  onFeedback?: () => void;
+}) {
+  const initials = userName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          data-ocid="header.user_avatar"
+          className="w-9 h-9 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Mi cuenta"
+        >
+          {initials || <User className="w-4 h-4" />}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="w-52 bg-popover border-border rounded-xl"
+      >
+        <div className="px-3 py-2 border-b border-border/50">
+          <p className="text-xs text-muted-foreground">Cuenta</p>
+          <p className="text-sm font-semibold text-foreground truncate">
+            {userName}
+          </p>
+        </div>
+        {onFeedback && (
+          <>
+            <DropdownMenuItem
+              data-ocid="header.feedback_button"
+              onClick={onFeedback}
+              className="cursor-pointer gap-2 m-1 rounded-lg text-foreground focus:text-foreground focus:bg-secondary"
+            >
+              <MessageSquare className="w-4 h-4 text-primary" />
+              Enviar Feedback
+            </DropdownMenuItem>
+            <Separator className="mx-1 bg-border/50" />
+          </>
+        )}
+        <DropdownMenuItem
+          data-ocid="header.logout_button"
+          onClick={onLogout}
+          className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer gap-2 m-1 rounded-lg"
+        >
+          <LogOut className="w-4 h-4" />
+          Cerrar Sesión
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/* ═══════════════════════════════════════
+   PROFILE SETUP MODAL
+═══════════════════════════════════════ */
+
+function ProfileSetupModal({
+  open,
+  onSave,
+}: {
+  open: boolean;
+  onSave: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (name.trim().length < 2) return;
+    setIsSubmitting(true);
+    try {
+      await onSave(name.trim());
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open}>
+      <DialogContent
+        data-ocid="profile_setup.dialog"
+        className="bg-popover border-border rounded-2xl max-w-sm mx-4"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <div className="flex items-center justify-center mb-2">
+            <div className="w-14 h-14 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center">
+              <img
+                src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+                alt="AdCreator AI"
+                className="w-9 h-9 object-contain logo-glow"
+              />
+            </div>
+          </div>
+          <DialogTitle className="font-display text-xl font-bold text-center text-foreground">
+            ¿Cómo te llamas?
+          </DialogTitle>
+          <DialogDescription className="font-body text-sm text-muted-foreground text-center">
+            Personalizamos tu experiencia con tu nombre
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-2">
+          <div className="flex flex-col gap-1.5">
+            <Label
+              htmlFor="profile-name"
+              className="font-body text-sm font-medium text-foreground/90"
+            >
+              Tu nombre
+            </Label>
+            <Input
+              id="profile-name"
+              data-ocid="profile_setup.name_input"
+              type="text"
+              placeholder="ej. Carlos, María López"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              minLength={2}
+              autoFocus
+              className="h-11 bg-secondary/60 border-border text-foreground placeholder:text-muted-foreground focus:ring-primary rounded-xl text-base"
+            />
+          </div>
+          <Button
+            data-ocid="profile_setup.submit_button"
+            type="submit"
+            disabled={isSubmitting || name.trim().length < 2}
+            size="lg"
+            className="w-full h-12 font-semibold font-display bg-primary hover:bg-primary/90 text-primary-foreground btn-glow rounded-xl gap-2 disabled:opacity-60"
+          >
+            {isSubmitting ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Sparkles className="w-4 h-4" />
+            )}
+            Continuar
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════
+   LOGIN VIEW
+═══════════════════════════════════════ */
+
+function LoginView() {
+  const { login, loginStatus } = useInternetIdentity();
+  const isLoggingIn = loginStatus === "logging-in";
+
+  const handleLogin = async () => {
+    try {
+      await login();
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        error.message === "User is already authenticated"
+      ) {
+        // Already authenticated — ignore
+      }
+    }
+  };
+
+  return (
+    <main className="flex flex-col flex-1 px-6 pt-12 pb-10 items-center">
+      {/* Logo */}
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0, transition: { duration: 0.45 } }}
+        className="flex flex-col items-center gap-4 mb-10"
+      >
+        <div className="w-20 h-20 rounded-2xl bg-primary/15 border border-primary/30 flex items-center justify-center logo-glow">
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-14 h-14 object-contain"
+          />
+        </div>
+        <div className="text-center">
+          <h1 className="font-display text-3xl font-bold tracking-tight">
+            <span className="text-gradient">AdCreator</span>{" "}
+            <span className="text-foreground">AI</span>
+          </h1>
+          <p className="text-xs text-muted-foreground font-body mt-0.5 tracking-wider uppercase">
+            Powered by AI
+          </p>
+        </div>
+      </motion.div>
+
+      {/* Headline */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          transition: { delay: 0.1, duration: 0.5 },
+        }}
+        className="text-center mb-10"
+      >
+        <h2 className="font-display text-2xl font-bold leading-tight text-foreground mb-3">
+          Bienvenido a AdCreator AI
+        </h2>
+        <p className="font-body text-muted-foreground text-sm leading-relaxed max-w-xs mx-auto">
+          Crea anuncios profesionales para tu negocio en segundos. Inicia sesión
+          para guardar tu historial de anuncios.
+        </p>
+      </motion.div>
+
+      {/* Feature pills */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { delay: 0.2, duration: 0.4 } }}
+        className="flex flex-wrap justify-center gap-2 mb-10"
+      >
+        {[
+          "✍️ Captions con IA",
+          "🖼️ Imágenes 1080×1080",
+          "📱 Instagram · Facebook · TikTok",
+          "💾 Historial de anuncios",
+        ].map((f) => (
+          <span
+            key={f}
+            className="text-xs px-3 py-1.5 rounded-full bg-secondary text-secondary-foreground border border-border font-body"
+          >
+            {f}
+          </span>
+        ))}
+      </motion.div>
+
+      {/* Login buttons */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          transition: { delay: 0.3, duration: 0.4 },
+        }}
+        className="w-full max-w-xs flex flex-col gap-3"
+      >
+        {isLoggingIn ? (
+          <div
+            data-ocid="login.loading_state"
+            className="flex flex-col items-center gap-3 py-6"
+          >
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            <p className="text-sm text-muted-foreground font-body">
+              Iniciando sesión…
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Continue with Google */}
+            <Button
+              data-ocid="login.google_button"
+              onClick={handleLogin}
+              size="lg"
+              className="w-full h-14 text-sm font-semibold font-display bg-white hover:bg-gray-50 text-gray-800 rounded-xl gap-3 border border-gray-200 shadow-sm transition-all duration-200"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="w-5 h-5 flex-shrink-0"
+                role="img"
+                aria-label="Google"
+              >
+                <title>Google</title>
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
+              </svg>
+              Continuar con Google
+            </Button>
+
+            {/* Continue with Email */}
+            <Button
+              data-ocid="login.email_button"
+              onClick={handleLogin}
+              variant="outline"
+              size="lg"
+              className="w-full h-14 text-sm font-semibold font-display border-border bg-secondary/60 hover:bg-secondary text-foreground rounded-xl gap-3 transition-all duration-200"
+            >
+              <Mail className="w-5 h-5 flex-shrink-0" />
+              Continuar con Email
+            </Button>
+          </>
+        )}
+
+        <p className="text-center text-xs text-muted-foreground font-body mt-2">
+          Tus anuncios se guardan en tu cuenta
+        </p>
+      </motion.div>
+
+      {/* Footer */}
+      <motion.footer
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { delay: 0.6 } }}
+        className="text-center mt-auto pt-8"
+      >
+        <p className="text-xs text-muted-foreground">
+          © {new Date().getFullYear()}. Creado con ❤️ usando{" "}
+          <a
+            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            caffeine.ai
+          </a>
+        </p>
+      </motion.footer>
+    </main>
+  );
+}
+
+/* ═══════════════════════════════════════
    APP ROOT
 ═══════════════════════════════════════ */
 
 export default function App() {
+  const { identity, clear, isInitializing } = useInternetIdentity();
+  const { actor, isFetching: actorFetching } = useActor();
+  const queryClient = useQueryClient();
+  const isAuthenticated = !!identity;
+
+  // User profile
+  const { data: userProfile, isFetched: profileFetched } = useQuery({
+    queryKey: ["currentUserProfile"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor not available");
+      return actor.getCallerUserProfile();
+    },
+    enabled: !!actor && !actorFetching && isAuthenticated,
+    retry: false,
+  });
+
+  const saveProfileMutation = useMutation({
+    mutationFn: async (name: string) => {
+      if (!actor) throw new Error("Actor not available");
+      await actor.saveCallerUserProfile({ name });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["currentUserProfile"] });
+    },
+  });
+
+  // Admin check
+  const { data: isAdmin } = useQuery({
+    queryKey: ["isCallerAdmin"],
+    queryFn: async () => {
+      if (!actor) return false;
+      return actor.isCallerAdmin();
+    },
+    enabled: !!actor && !actorFetching && isAuthenticated,
+    retry: false,
+  });
+
+  // Register user role on first login
+  useEffect(() => {
+    if (actor && isAuthenticated && !actorFetching) {
+      actor
+        .getCallerUserRole()
+        .then(async (role) => {
+          if (role === UserRole.guest) {
+            try {
+              await actor.assignCallerUserRole(
+                identity!.getPrincipal(),
+                UserRole.user,
+              );
+            } catch {
+              // Ignore if already assigned
+            }
+          }
+        })
+        .catch(() => {
+          // Ignore errors
+        });
+    }
+  }, [actor, isAuthenticated, actorFetching, identity]);
+
+  const handleLogout = async () => {
+    await clear();
+    queryClient.clear();
+  };
+
+  const showProfileSetup =
+    isAuthenticated && !actorFetching && profileFetched && userProfile === null;
+  const userName = userProfile?.name ?? (identity ? "Usuario" : "");
+
+  // Daily ad usage (freemium)
+  const { data: dailyUsage, refetch: refetchDailyUsage } =
+    useQuery<DailyUsageStats>({
+      queryKey: ["dailyAdUsage"],
+      queryFn: async () => {
+        if (!actor) throw new Error("Actor not available");
+        return actor.getDailyUsage();
+      },
+      enabled: !!actor && !actorFetching && isAuthenticated,
+      retry: false,
+    });
+
+  // Feedback modal state
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
   const [view, setView] = useState<View>("landing");
   const [formData, setFormData] = useState<FormData>({
     businessName: "",
@@ -718,7 +1177,7 @@ export default function App() {
       const ad = generateAd(fd);
       setGeneratedAd(ad);
       setView("result");
-      // Save to My Ads
+      // Save to localStorage (fallback)
       saveAdToStorage({
         id: Date.now().toString(),
         businessName: fd.businessName || fd.businessType,
@@ -728,6 +1187,32 @@ export default function App() {
         platform: fd.platform,
         savedAt: Date.now(),
       });
+      // Save to backend (primary)
+      if (isAuthenticated) {
+        try {
+          await actor!.saveAd({
+            businessName: fd.businessName || fd.businessType,
+            imageUrl: AD_IMAGES[fd.businessType] ?? undefined,
+            captionShort: ad.short,
+            captionLong: ad.long,
+            platform: fd.platform,
+            tone: fd.tone,
+          });
+          queryClient.invalidateQueries({ queryKey: ["myAds"] });
+          await refetchDailyUsage();
+        } catch (saveErr) {
+          const errMsg =
+            saveErr instanceof Error ? saveErr.message : String(saveErr);
+          if (errMsg.toLowerCase().includes("daily usage limit")) {
+            setError("DAILY_LIMIT_REACHED");
+            setView("form");
+            setIsLoading(false);
+            return;
+          }
+          // Non-limit errors: silently continue (ad already in localStorage)
+          console.warn("saveAd failed:", saveErr);
+        }
+      }
       setIsGeneratingImage(true);
       setTimeout(() => {
         setAdImageUrl(AD_IMAGES[fd.businessType] ?? null);
@@ -859,6 +1344,22 @@ export default function App() {
     setView("landing");
   };
 
+  // Show initializing spinner
+  if (isInitializing) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center noise-bg">
+        <div className="flex flex-col items-center gap-4">
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-12 h-12 object-contain logo-glow"
+          />
+          <Loader2 className="w-6 h-6 text-primary animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-dvh flex items-start justify-center noise-bg">
       <Toaster
@@ -873,8 +1374,36 @@ export default function App() {
       />
 
       <div className="w-full max-w-[520px] min-h-dvh flex flex-col relative overflow-hidden">
+        {/* Feedback modal — app root level */}
+        <FeedbackModal
+          open={showFeedbackModal}
+          onClose={() => setShowFeedbackModal(false)}
+        />
+
+        {/* Profile setup modal */}
+        <ProfileSetupModal
+          open={showProfileSetup}
+          onSave={async (name) => {
+            await saveProfileMutation.mutateAsync(name);
+          }}
+        />
+
         <AnimatePresence mode="wait">
-          {view === "landing" && (
+          {/* Auth gate */}
+          {!isAuthenticated && (
+            <motion.div
+              key="login"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <LoginView />
+            </motion.div>
+          )}
+
+          {isAuthenticated && view === "landing" && (
             <motion.div
               key="landing"
               variants={pageVariants}
@@ -887,11 +1416,16 @@ export default function App() {
                 onTryFree={() => setView("form")}
                 onMyAds={() => setView("myads")}
                 onPhotoAd={() => setView("photo_ad")}
+                onAdmin={() => setView("admin")}
+                onFeedback={() => setShowFeedbackModal(true)}
+                isAdmin={isAdmin === true}
+                userName={userName}
+                onLogout={handleLogout}
               />
             </motion.div>
           )}
 
-          {view === "home" && (
+          {isAuthenticated && view === "home" && (
             <motion.div
               key="home"
               variants={pageVariants}
@@ -907,7 +1441,7 @@ export default function App() {
             </motion.div>
           )}
 
-          {view === "form" && (
+          {isAuthenticated && view === "form" && (
             <motion.div
               key="form"
               variants={pageVariants}
@@ -926,11 +1460,15 @@ export default function App() {
                   setView("landing");
                 }}
                 onSubmit={() => handleGenerateAd()}
+                userName={userName}
+                onLogout={handleLogout}
+                onFeedback={() => setShowFeedbackModal(true)}
+                dailyUsage={dailyUsage}
               />
             </motion.div>
           )}
 
-          {view === "result" && generatedAd && (
+          {isAuthenticated && view === "result" && generatedAd && (
             <motion.div
               key="result"
               variants={pageVariants}
@@ -968,11 +1506,14 @@ export default function App() {
                 }
                 onCreateAnother={handleCreateAnother}
                 onGoToMyAds={() => setView("myads")}
+                userName={userName}
+                onLogout={handleLogout}
+                onFeedback={() => setShowFeedbackModal(true)}
               />
             </motion.div>
           )}
 
-          {view === "myads" && (
+          {isAuthenticated && view === "myads" && (
             <motion.div
               key="myads"
               variants={pageVariants}
@@ -984,11 +1525,14 @@ export default function App() {
               <MyAdsView
                 onBack={() => setView("landing")}
                 onCreateAd={() => setView("form")}
+                userName={userName}
+                onLogout={handleLogout}
+                onFeedback={() => setShowFeedbackModal(true)}
               />
             </motion.div>
           )}
 
-          {view === "photo_ad" && (
+          {isAuthenticated && view === "photo_ad" && (
             <motion.div
               key="photo_ad"
               variants={pageVariants}
@@ -998,6 +1542,24 @@ export default function App() {
               className="flex flex-col flex-1"
             >
               <PhotoAdView onBack={() => setView("landing")} />
+            </motion.div>
+          )}
+
+          {isAuthenticated && view === "admin" && (
+            <motion.div
+              key="admin"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <AdminDashboardView
+                onBack={() => setView("landing")}
+                userName={userName}
+                onLogout={handleLogout}
+                onFeedback={() => setShowFeedbackModal(true)}
+              />
             </motion.div>
           )}
         </AnimatePresence>
@@ -1014,14 +1576,24 @@ function LandingView({
   onTryFree,
   onMyAds,
   onPhotoAd,
+  onAdmin,
+  onFeedback,
+  isAdmin,
+  userName,
+  onLogout,
 }: {
   onTryFree: () => void;
   onMyAds: () => void;
   onPhotoAd: () => void;
+  onAdmin?: () => void;
+  onFeedback?: () => void;
+  isAdmin?: boolean;
+  userName?: string;
+  onLogout?: () => void;
 }) {
   return (
     <main className="flex flex-col flex-1 px-6 pt-12 pb-10">
-      {/* Logo */}
+      {/* Logo + Avatar row */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0, transition: { duration: 0.45 } }}
@@ -1032,10 +1604,17 @@ function LandingView({
           alt="AdCreator AI"
           className="w-10 h-10 object-contain logo-glow"
         />
-        <span className="font-display text-xl font-bold">
+        <span className="font-display text-xl font-bold flex-1">
           <span className="text-gradient">AdCreator</span>{" "}
           <span className="text-foreground">AI</span>
         </span>
+        {userName && onLogout && (
+          <UserAvatarChip
+            userName={userName}
+            onLogout={onLogout}
+            onFeedback={onFeedback}
+          />
+        )}
       </motion.div>
 
       {/* Headline */}
@@ -1139,6 +1718,27 @@ function LandingView({
         >
           View My Ads
         </button>
+        {isAdmin && onAdmin && (
+          <button
+            type="button"
+            data-ocid="landing.admin_button"
+            onClick={onAdmin}
+            className="w-full h-9 text-xs font-medium text-primary/70 hover:text-primary transition-colors flex items-center justify-center gap-1.5 border border-primary/20 rounded-xl hover:border-primary/40 hover:bg-primary/5"
+          >
+            🔐 Admin Dashboard
+          </button>
+        )}
+        {onFeedback && (
+          <button
+            type="button"
+            data-ocid="landing.feedback_link"
+            onClick={onFeedback}
+            className="w-full h-9 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            Enviar Feedback
+          </button>
+        )}
       </motion.div>
 
       {/* Footer */}
@@ -1170,11 +1770,44 @@ function LandingView({
 function MyAdsView({
   onBack,
   onCreateAd,
+  userName,
+  onLogout,
+  onFeedback,
 }: {
   onBack: () => void;
   onCreateAd: () => void;
+  userName?: string;
+  onLogout?: () => void;
+  onFeedback?: () => void;
 }) {
-  const [ads] = useState<SavedAd[]>(() => loadSavedAds());
+  const { actor, isFetching: actorFetching } = useActor();
+  const queryClient = useQueryClient();
+
+  const { data: backendAds, isLoading: adsLoading } = useQuery({
+    queryKey: ["myAds"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor not available");
+      return actor.getAdsForCaller();
+    },
+    enabled: !!actor && !actorFetching,
+    retry: false,
+  });
+
+  const deleteAdMutation = useMutation({
+    mutationFn: async (adId: bigint) => {
+      if (!actor) throw new Error("Actor not available");
+      await actor.deleteAd(adId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["myAds"] });
+      toast.success("Anuncio eliminado", { duration: 2000 });
+    },
+    onError: () => {
+      toast.error("Error al eliminar el anuncio");
+    },
+  });
+
+  const ads: Ad[] = backendAds ?? [];
 
   return (
     <div className="flex flex-col flex-1">
@@ -1199,13 +1832,38 @@ function MyAdsView({
             Mis Anuncios
           </span>
         </div>
-        <span className="text-xs text-muted-foreground font-body">
-          {ads.length} guardados
-        </span>
+        {!adsLoading && (
+          <span className="text-xs text-muted-foreground font-body">
+            {ads.length} guardados
+          </span>
+        )}
+        {userName && onLogout && (
+          <UserAvatarChip
+            userName={userName}
+            onLogout={onLogout}
+            onFeedback={onFeedback}
+          />
+        )}
       </header>
 
       <main className="flex flex-col flex-1 px-4 pt-5 pb-10">
-        {ads.length === 0 ? (
+        {adsLoading ? (
+          <div
+            data-ocid="myads.loading_state"
+            className="grid grid-cols-2 gap-3"
+          >
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="glass-card rounded-xl overflow-hidden">
+                <Skeleton className="aspect-square w-full bg-secondary" />
+                <div className="p-3 flex flex-col gap-2">
+                  <Skeleton className="h-3 w-3/4 bg-secondary rounded-full" />
+                  <Skeleton className="h-3 w-full bg-secondary rounded-full" />
+                  <Skeleton className="h-8 w-full bg-secondary rounded-lg mt-1" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : ads.length === 0 ? (
           <motion.div
             data-ocid="myads.empty_state"
             initial={{ opacity: 0, y: 20 }}
@@ -1243,18 +1901,19 @@ function MyAdsView({
           >
             {ads.map((ad, idx) => {
               const ocidSuffix = idx + 1;
+              const imageUrl = ad.imageUrl ?? null;
               return (
                 <motion.div
-                  key={ad.id}
+                  key={ad.id.toString()}
                   data-ocid={`myads.item.${ocidSuffix}`}
                   variants={staggerItem}
                   className="glass-card rounded-xl overflow-hidden flex flex-col"
                 >
                   {/* Thumbnail */}
-                  <div className="aspect-square w-full overflow-hidden bg-secondary/50 flex-shrink-0">
-                    {ad.imageUrl ? (
+                  <div className="aspect-square w-full overflow-hidden bg-secondary/50 flex-shrink-0 relative">
+                    {imageUrl ? (
                       <img
-                        src={ad.imageUrl}
+                        src={imageUrl}
                         alt={ad.businessName}
                         className="w-full h-full object-cover"
                       />
@@ -1263,6 +1922,26 @@ function MyAdsView({
                         🏪
                       </div>
                     )}
+                    {/* Platform badge */}
+                    <div className="absolute top-2 left-2">
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
+                        style={{
+                          background:
+                            ad.platform === "instagram"
+                              ? "linear-gradient(135deg, oklch(0.68 0.22 15), oklch(0.62 0.24 330), oklch(0.58 0.22 280))"
+                              : ad.platform === "facebook"
+                                ? "oklch(0.42 0.20 265)"
+                                : "linear-gradient(135deg, #010101, #ee1d52)",
+                        }}
+                      >
+                        {ad.platform === "instagram"
+                          ? "IG"
+                          : ad.platform === "facebook"
+                            ? "FB"
+                            : "TT"}
+                      </span>
+                    </div>
                   </div>
                   {/* Info */}
                   <div className="p-3 flex flex-col gap-2 flex-1">
@@ -1277,9 +1956,23 @@ function MyAdsView({
                     <div className="flex gap-1.5 mt-auto pt-1">
                       <button
                         type="button"
+                        data-ocid={`myads.copy_caption_button.${ocidSuffix}`}
+                        onClick={() => {
+                          navigator.clipboard.writeText(ad.captionShort);
+                          toast.success("¡Caption copiado!", {
+                            duration: 2000,
+                          });
+                        }}
+                        className="flex-1 h-8 rounded-lg text-[10px] font-semibold font-display bg-primary/15 hover:bg-primary/25 border border-primary/25 text-primary transition-all flex items-center justify-center gap-1"
+                      >
+                        <Copy className="w-3 h-3" />
+                        Copiar
+                      </button>
+                      <button
+                        type="button"
                         data-ocid={`myads.download_button.${ocidSuffix}`}
-                        onClick={() => ad.imageUrl && saveToPhotos(ad.imageUrl)}
-                        disabled={!ad.imageUrl}
+                        onClick={() => imageUrl && saveToPhotos(imageUrl)}
+                        disabled={!imageUrl}
                         className="flex-1 h-8 rounded-lg text-[10px] font-semibold font-display bg-secondary/80 hover:bg-secondary border border-border text-foreground transition-all flex items-center justify-center gap-1 disabled:opacity-40"
                       >
                         <Download className="w-3 h-3" />
@@ -1287,16 +1980,13 @@ function MyAdsView({
                       </button>
                       <button
                         type="button"
-                        data-ocid={`myads.share_button.${ocidSuffix}`}
-                        onClick={() =>
-                          ad.imageUrl
-                            ? shareAdImage(ad.imageUrl, ad.captionShort)
-                            : navigator.clipboard.writeText(ad.captionShort)
-                        }
-                        className="flex-1 h-8 rounded-lg text-[10px] font-semibold font-display bg-primary/15 hover:bg-primary/25 border border-primary/25 text-primary transition-all flex items-center justify-center gap-1"
+                        data-ocid={`myads.delete_button.${ocidSuffix}`}
+                        onClick={() => deleteAdMutation.mutate(ad.id)}
+                        disabled={deleteAdMutation.isPending}
+                        className="h-8 w-8 rounded-lg font-semibold bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive transition-all flex items-center justify-center disabled:opacity-40"
+                        aria-label="Eliminar anuncio"
                       >
-                        <Share2 className="w-3 h-3" />
-                        Compartir
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -1506,6 +2196,10 @@ interface FormViewProps {
   error: string;
   onBack: () => void;
   onSubmit: () => void;
+  userName?: string;
+  onLogout?: () => void;
+  onFeedback?: () => void;
+  dailyUsage?: DailyUsageStats;
 }
 
 function FormView({
@@ -1515,6 +2209,10 @@ function FormView({
   error,
   onBack,
   onSubmit,
+  userName,
+  onLogout,
+  onFeedback,
+  dailyUsage,
 }: FormViewProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1562,9 +2260,17 @@ function FormView({
             AdCreator AI
           </span>
         </div>
-        <span className="text-xs text-muted-foreground font-body">
-          Nuevo Anuncio
-        </span>
+        {userName && onLogout ? (
+          <UserAvatarChip
+            userName={userName}
+            onLogout={onLogout}
+            onFeedback={onFeedback}
+          />
+        ) : (
+          <span className="text-xs text-muted-foreground font-body">
+            Nuevo Anuncio
+          </span>
+        )}
       </header>
 
       <main className="flex flex-col flex-1 px-5 pt-5 pb-10">
@@ -1882,8 +2588,8 @@ function FormView({
             </div>
           </div>
 
-          {/* Error */}
-          {error && (
+          {/* Error (non-limit errors) */}
+          {error && error !== "DAILY_LIMIT_REACHED" && (
             <Alert
               data-ocid="form.error_state"
               variant="destructive"
@@ -1903,27 +2609,111 @@ function FormView({
             </div>
           )}
 
-          {/* Submit */}
-          <div className="mt-auto pt-2">
-            <Button
-              data-ocid="form.submit_button"
-              type="submit"
-              disabled={isLoading}
-              size="lg"
-              className="w-full h-14 text-base font-semibold font-display tracking-wide bg-primary hover:bg-primary/90 text-primary-foreground btn-glow transition-all duration-300 rounded-xl gap-2 disabled:opacity-60"
-            >
-              {isLoading ? (
+          {/* Submit / Daily Limit area */}
+          <div className="mt-auto pt-2 flex flex-col gap-2">
+            {(() => {
+              const isLimitReached =
+                error === "DAILY_LIMIT_REACHED" ||
+                (dailyUsage != null &&
+                  Number(dailyUsage.count) >= Number(dailyUsage.limit));
+              if (isLimitReached && !isLoading) {
+                // Calculate reset time
+                let resetText = "";
+                if (dailyUsage) {
+                  const resetMs = Number(dailyUsage.resetAt) / 1_000_000;
+                  const diffMs = resetMs - Date.now();
+                  if (diffMs > 0) {
+                    const hrs = Math.floor(diffMs / 3_600_000);
+                    const mins = Math.floor((diffMs % 3_600_000) / 60_000);
+                    resetText =
+                      hrs > 0 ? `${hrs}h ${mins}m` : `${mins} minutos`;
+                  }
+                }
+                return (
+                  <div
+                    data-ocid="freemium.limit_card"
+                    className="rounded-2xl border border-amber-500/30 bg-amber-500/8 p-5 flex flex-col gap-3"
+                    style={{
+                      background: "oklch(0.72 0.12 75 / 0.08)",
+                      borderColor: "oklch(0.72 0.12 75 / 0.35)",
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                        style={{ background: "oklch(0.72 0.12 75 / 0.15)" }}
+                      >
+                        <Lock
+                          className="w-4 h-4"
+                          style={{ color: "oklch(0.80 0.12 75)" }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="font-display font-bold text-sm leading-tight mb-1"
+                          style={{ color: "oklch(0.85 0.10 75)" }}
+                        >
+                          Límite diario alcanzado
+                        </p>
+                        <p className="font-body text-xs leading-relaxed text-muted-foreground">
+                          Has alcanzado el límite gratuito de{" "}
+                          {dailyUsage ? Number(dailyUsage.limit) : 3} anuncios
+                          por día. Actualiza a{" "}
+                          <span
+                            className="font-semibold"
+                            style={{ color: "oklch(0.85 0.10 75)" }}
+                          >
+                            AdCreator AI Pro
+                          </span>{" "}
+                          para anuncios ilimitados.
+                        </p>
+                        {resetText && (
+                          <p
+                            className="font-body text-xs mt-2 font-medium"
+                            style={{ color: "oklch(0.72 0.10 75)" }}
+                          >
+                            🔄 Se restablece en {resetText}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Generando tu anuncio…
+                  <Button
+                    data-ocid="form.submit_button"
+                    type="submit"
+                    disabled={isLoading}
+                    size="lg"
+                    className="w-full h-14 text-base font-semibold font-display tracking-wide bg-primary hover:bg-primary/90 text-primary-foreground btn-glow transition-all duration-300 rounded-xl gap-2 disabled:opacity-60"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Generando tu anuncio…
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-5 h-5" />
+                        Generar Anuncio
+                      </>
+                    )}
+                  </Button>
+                  {/* Usage badge */}
+                  {dailyUsage && !isLoading && (
+                    <p
+                      data-ocid="freemium.usage_badge"
+                      className="text-center text-xs text-muted-foreground font-body"
+                    >
+                      {Number(dailyUsage.count)}/{Number(dailyUsage.limit)}{" "}
+                      anuncios generados hoy
+                    </p>
+                  )}
                 </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  Generar Anuncio
-                </>
-              )}
-            </Button>
+              );
+            })()}
           </div>
         </form>
       </main>
@@ -2144,6 +2934,9 @@ interface ResultViewProps {
   onDownloadInstagram: () => void;
   onCreateAnother: () => void;
   onGoToMyAds?: () => void;
+  userName?: string;
+  onLogout?: () => void;
+  onFeedback?: () => void;
 }
 
 function ResultView({
@@ -2168,6 +2961,9 @@ function ResultView({
   onDownloadInstagram,
   onCreateAnother,
   onGoToMyAds,
+  userName,
+  onLogout,
+  onFeedback,
 }: ResultViewProps) {
   const hashtagString =
     BUSINESS_DATA[formData.businessType]?.hashtags ?? "#Negocio #Ofertas";
@@ -2291,6 +3087,13 @@ function ResultView({
           >
             <BookMarked className="w-4 h-4" />
           </button>
+        )}
+        {userName && onLogout && (
+          <UserAvatarChip
+            userName={userName}
+            onLogout={onLogout}
+            onFeedback={onFeedback}
+          />
         )}
       </header>
 
