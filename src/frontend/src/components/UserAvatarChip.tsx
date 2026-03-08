@@ -11,10 +11,12 @@ export function UserAvatarChip({
   onLogout,
   userName,
   onFeedback,
+  isPro,
 }: {
   onLogout: () => void;
   userName: string;
   onFeedback?: () => void;
+  isPro?: boolean;
 }) {
   const initials = userName
     .split(" ")
@@ -29,21 +31,46 @@ export function UserAvatarChip({
         <button
           type="button"
           data-ocid="header.user_avatar"
-          className="w-9 h-9 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-9 h-9 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring relative"
           aria-label="Mi cuenta"
         >
           {initials || <User className="w-4 h-4" />}
+          {isPro && (
+            <span
+              className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.72 0.18 75), oklch(0.62 0.22 270))",
+              }}
+              aria-label="Pro"
+            >
+              ⭐
+            </span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-52 bg-popover border-border rounded-xl"
+        className="w-56 bg-popover border-border rounded-xl"
       >
-        <div className="px-3 py-2 border-b border-border/50">
+        <div className="px-3 py-2.5 border-b border-border/50">
           <p className="text-xs text-muted-foreground">Cuenta</p>
           <p className="text-sm font-semibold text-foreground truncate">
             {userName}
           </p>
+          {isPro && (
+            <span
+              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.72 0.18 75 / 0.20), oklch(0.62 0.22 270 / 0.20))",
+                color: "oklch(0.82 0.16 75)",
+                border: "1px solid oklch(0.72 0.18 75 / 0.35)",
+              }}
+            >
+              ⭐ Pro User
+            </span>
+          )}
         </div>
         {onFeedback && (
           <>

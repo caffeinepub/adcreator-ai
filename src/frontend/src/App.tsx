@@ -41,7 +41,6 @@ import {
   ImageIcon,
   Layers,
   Loader2,
-  Lock,
   LogOut,
   Mail,
   MessageCircle,
@@ -61,8 +60,18 @@ import type { Ad, DailyUsageStats } from "./backend";
 import { UserRole } from "./backend";
 import { AdminDashboardView } from "./components/AdminDashboardView";
 import { FeedbackModal } from "./components/FeedbackModal";
+import { LogoGeneratorView } from "./components/LogoGeneratorView";
+import { PromoVideoView } from "./components/PromoVideoView";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
+import {
+  getLogoUsage,
+  getVideoUsage,
+  incrementLogoUsage,
+  incrementVideoUsage,
+  isUserPro,
+  markUserAsPro,
+} from "./utils/proStorage";
 
 /* ═══════════════════════════════════════
    TYPES
@@ -76,7 +85,9 @@ type View =
   | "result"
   | "myads"
   | "photo_ad"
-  | "admin";
+  | "admin"
+  | "logo"
+  | "video";
 type Platform = "instagram" | "facebook" | "tiktok";
 type CaptionLength = "short" | "long";
 
@@ -714,10 +725,12 @@ function UserAvatarChip({
   onLogout,
   userName,
   onFeedback,
+  isPro,
 }: {
   onLogout: () => void;
   userName: string;
   onFeedback?: () => void;
+  isPro?: boolean;
 }) {
   const initials = userName
     .split(" ")
@@ -732,21 +745,46 @@ function UserAvatarChip({
         <button
           type="button"
           data-ocid="header.user_avatar"
-          className="w-9 h-9 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="w-9 h-9 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary hover:bg-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring relative"
           aria-label="Mi cuenta"
         >
           {initials || <User className="w-4 h-4" />}
+          {isPro && (
+            <span
+              className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.72 0.18 75), oklch(0.62 0.22 270))",
+              }}
+              aria-label="Pro"
+            >
+              ⭐
+            </span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-52 bg-popover border-border rounded-xl"
+        className="w-56 bg-popover border-border rounded-xl"
       >
-        <div className="px-3 py-2 border-b border-border/50">
+        <div className="px-3 py-2.5 border-b border-border/50">
           <p className="text-xs text-muted-foreground">Cuenta</p>
           <p className="text-sm font-semibold text-foreground truncate">
             {userName}
           </p>
+          {isPro && (
+            <span
+              className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+              style={{
+                background:
+                  "linear-gradient(135deg, oklch(0.72 0.18 75 / 0.20), oklch(0.62 0.22 270 / 0.20))",
+                color: "oklch(0.82 0.16 75)",
+                border: "1px solid oklch(0.72 0.18 75 / 0.35)",
+              }}
+            >
+              ⭐ Pro User
+            </span>
+          )}
         </div>
         {onFeedback && (
           <>
@@ -1134,6 +1172,66 @@ export default function App() {
       retry: false,
     });
 
+  // Pro subscription state (localStorage-based)
+  const [isPro, setIsPro] = useState<boolean>(() =>
+    identity ? isUserPro(identity.getPrincipal().toText()) : false,
+  );
+
+  useEffect(() => {
+    if (identity) {
+      setIsPro(isUserPro(identity.getPrincipal().toText()));
+    } else {
+      setIsPro(false);
+    }
+  }, [identity]);
+
+  const handleUpgradeToPro = () => {
+    if (identity) {
+      markUserAsPro(identity.getPrincipal().toText());
+      setIsPro(true);
+      toast.success("¡Bienvenido a AdCreator AI Pro!", { duration: 3000 });
+      setError("");
+    }
+  };
+
+  // Logo usage state
+  const [logoCount, setLogoCount] = useState<number>(() => {
+    if (!identity) return 0;
+    return getLogoUsage(identity.getPrincipal().toText()).count;
+  });
+
+  useEffect(() => {
+    if (identity) {
+      setLogoCount(getLogoUsage(identity.getPrincipal().toText()).count);
+    }
+  }, [identity]);
+
+  const handleLogoGenerated = () => {
+    if (identity) {
+      const updated = incrementLogoUsage(identity.getPrincipal().toText());
+      setLogoCount(updated.count);
+    }
+  };
+
+  // Video usage state
+  const [videoCount, setVideoCount] = useState<number>(() => {
+    if (!identity) return 0;
+    return getVideoUsage(identity.getPrincipal().toText()).count;
+  });
+
+  useEffect(() => {
+    if (identity) {
+      setVideoCount(getVideoUsage(identity.getPrincipal().toText()).count);
+    }
+  }, [identity]);
+
+  const handleVideoGenerated = () => {
+    if (identity) {
+      const updated = incrementVideoUsage(identity.getPrincipal().toText());
+      setVideoCount(updated.count);
+    }
+  };
+
   // Feedback modal state
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
@@ -1204,10 +1302,13 @@ export default function App() {
           const errMsg =
             saveErr instanceof Error ? saveErr.message : String(saveErr);
           if (errMsg.toLowerCase().includes("daily usage limit")) {
-            setError("DAILY_LIMIT_REACHED");
-            setView("form");
-            setIsLoading(false);
-            return;
+            if (!isPro) {
+              setError("DAILY_LIMIT_REACHED");
+              setView("form");
+              setIsLoading(false);
+              return;
+            }
+            // Pro users: silently swallow the limit error and continue
           }
           // Non-limit errors: silently continue (ad already in localStorage)
           console.warn("saveAd failed:", saveErr);
@@ -1416,11 +1517,14 @@ export default function App() {
                 onTryFree={() => setView("form")}
                 onMyAds={() => setView("myads")}
                 onPhotoAd={() => setView("photo_ad")}
+                onLogo={() => setView("logo")}
+                onVideo={() => setView("video")}
                 onAdmin={() => setView("admin")}
                 onFeedback={() => setShowFeedbackModal(true)}
                 isAdmin={isAdmin === true}
                 userName={userName}
                 onLogout={handleLogout}
+                isPro={isPro}
               />
             </motion.div>
           )}
@@ -1464,6 +1568,8 @@ export default function App() {
                 onLogout={handleLogout}
                 onFeedback={() => setShowFeedbackModal(true)}
                 dailyUsage={dailyUsage}
+                isPro={isPro}
+                onUpgrade={handleUpgradeToPro}
               />
             </motion.div>
           )}
@@ -1562,6 +1668,44 @@ export default function App() {
               />
             </motion.div>
           )}
+
+          {isAuthenticated && view === "logo" && (
+            <motion.div
+              key="logo"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <LogoGeneratorView
+                onBack={() => setView("landing")}
+                isPro={isPro}
+                onUpgrade={handleUpgradeToPro}
+                logoCount={logoCount}
+                onLogoGenerated={handleLogoGenerated}
+              />
+            </motion.div>
+          )}
+
+          {isAuthenticated && view === "video" && (
+            <motion.div
+              key="video"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <PromoVideoView
+                onBack={() => setView("landing")}
+                isPro={isPro}
+                onUpgrade={handleUpgradeToPro}
+                videoCount={videoCount}
+                onVideoGenerated={handleVideoGenerated}
+              />
+            </motion.div>
+          )}
         </AnimatePresence>
       </div>
     </div>
@@ -1576,20 +1720,26 @@ function LandingView({
   onTryFree,
   onMyAds,
   onPhotoAd,
+  onLogo,
+  onVideo,
   onAdmin,
   onFeedback,
   isAdmin,
   userName,
   onLogout,
+  isPro,
 }: {
   onTryFree: () => void;
   onMyAds: () => void;
   onPhotoAd: () => void;
+  onLogo: () => void;
+  onVideo: () => void;
   onAdmin?: () => void;
   onFeedback?: () => void;
   isAdmin?: boolean;
   userName?: string;
   onLogout?: () => void;
+  isPro?: boolean;
 }) {
   return (
     <main className="flex flex-col flex-1 px-6 pt-12 pb-10">
@@ -1608,11 +1758,25 @@ function LandingView({
           <span className="text-gradient">AdCreator</span>{" "}
           <span className="text-foreground">AI</span>
         </span>
+        {isPro && (
+          <span
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold"
+            style={{
+              background:
+                "linear-gradient(135deg, oklch(0.72 0.18 75 / 0.20), oklch(0.62 0.22 270 / 0.20))",
+              color: "oklch(0.82 0.16 75)",
+              border: "1px solid oklch(0.72 0.18 75 / 0.35)",
+            }}
+          >
+            ⭐ Pro
+          </span>
+        )}
         {userName && onLogout && (
           <UserAvatarChip
             userName={userName}
             onLogout={onLogout}
             onFeedback={onFeedback}
+            isPro={isPro}
           />
         )}
       </motion.div>
@@ -1659,9 +1823,14 @@ function LandingView({
             desc: "1080×1080 promotional images for every business type",
           },
           {
-            icon: "📱",
-            title: "Multi-Platform",
-            desc: "Optimized for Instagram, Facebook, and TikTok",
+            icon: "🎨",
+            title: "AI Logo Generator",
+            desc: "Professional logos in modern, luxury, minimal or bold styles",
+          },
+          {
+            icon: "🎬",
+            title: "Promo Video",
+            desc: "Animated vertical videos for Instagram Reels, TikTok & Facebook",
           },
         ].map((f) => (
           <motion.div
@@ -1701,6 +1870,29 @@ function LandingView({
           <Sparkles className="w-5 h-5" />
           Try It Free →
         </Button>
+
+        {/* New feature buttons */}
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            data-ocid="landing.logo_button"
+            onClick={onLogo}
+            variant="outline"
+            size="lg"
+            className="w-full h-12 text-xs font-semibold font-display border-border bg-secondary/60 hover:bg-secondary text-foreground rounded-xl gap-1.5 transition-all duration-200"
+          >
+            🎨 Generate Logo
+          </Button>
+          <Button
+            data-ocid="landing.video_button"
+            onClick={onVideo}
+            variant="outline"
+            size="lg"
+            className="w-full h-12 text-xs font-semibold font-display border-border bg-secondary/60 hover:bg-secondary text-foreground rounded-xl gap-1.5 transition-all duration-200"
+          >
+            🎬 Promo Video
+          </Button>
+        </div>
+
         <Button
           data-ocid="landing.photo_ad_button"
           onClick={onPhotoAd}
@@ -2200,6 +2392,133 @@ interface FormViewProps {
   onLogout?: () => void;
   onFeedback?: () => void;
   dailyUsage?: DailyUsageStats;
+  isPro: boolean;
+  onUpgrade: () => void;
+}
+
+/* ═══════════════════════════════════════
+   UPGRADE SCREEN COMPONENT
+═══════════════════════════════════════ */
+
+function UpgradeScreen({
+  onUpgrade,
+}: {
+  onUpgrade: () => void;
+  dailyUsage?: DailyUsageStats;
+}) {
+  const [isUpgrading, setIsUpgrading] = useState(false);
+
+  const handleUpgrade = async () => {
+    setIsUpgrading(true);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    setIsUpgrading(false);
+    onUpgrade();
+  };
+
+  return (
+    <motion.div
+      data-ocid="upgrade.card"
+      initial={{ opacity: 0, scale: 0.97 }}
+      animate={{
+        opacity: 1,
+        scale: 1,
+        transition: { type: "spring", stiffness: 280, damping: 24 },
+      }}
+      className="rounded-2xl overflow-hidden relative"
+      style={{
+        background:
+          "linear-gradient(145deg, oklch(0.14 0.04 280), oklch(0.16 0.06 260))",
+        border: "1px solid oklch(0.62 0.22 270 / 0.40)",
+      }}
+    >
+      {/* Glow effect */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(ellipse 80% 50% at 50% 0%, oklch(0.62 0.22 270 / 0.12) 0%, transparent 70%)",
+        }}
+        aria-hidden
+      />
+
+      <div className="relative z-10 p-5 flex flex-col gap-4">
+        {/* Icon + headline */}
+        <div className="flex items-start gap-3">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{
+              background:
+                "linear-gradient(135deg, oklch(0.72 0.18 75 / 0.25), oklch(0.62 0.22 270 / 0.25))",
+              border: "1px solid oklch(0.72 0.18 75 / 0.35)",
+            }}
+          >
+            <span className="text-xl">⭐</span>
+          </div>
+          <div className="flex-1">
+            <p className="font-display font-bold text-sm text-foreground leading-tight mb-1">
+              Upgrade to AdCreator AI Pro
+            </p>
+            <p className="font-body text-xs text-muted-foreground leading-relaxed">
+              Generate unlimited ads for your business.
+            </p>
+          </div>
+        </div>
+
+        {/* Benefits list */}
+        <div className="flex flex-col gap-2">
+          {[
+            "Generación ilimitada de anuncios",
+            "Imágenes IA ilimitadas",
+            "Logos con IA ilimitados",
+            "Videos promocionales ilimitados",
+            "Sin límites diarios",
+          ].map((benefit) => (
+            <div key={benefit} className="flex items-center gap-2">
+              <div
+                className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{
+                  background: "oklch(0.62 0.22 270 / 0.20)",
+                  border: "1px solid oklch(0.62 0.22 270 / 0.35)",
+                }}
+              >
+                <span className="text-[9px]">✓</span>
+              </div>
+              <span className="font-body text-xs text-foreground/80">
+                {benefit}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {/* CTA Button */}
+        <Button
+          data-ocid="upgrade.primary_button"
+          onClick={handleUpgrade}
+          disabled={isUpgrading}
+          size="lg"
+          className="w-full h-12 font-semibold font-display text-sm rounded-xl gap-2 disabled:opacity-70 transition-all duration-200"
+          style={{
+            background:
+              "linear-gradient(135deg, oklch(0.62 0.22 270), oklch(0.55 0.22 290))",
+            color: "white",
+            border: "none",
+          }}
+        >
+          {isUpgrading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Activando Pro…
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4" />
+              Upgrade to Pro
+            </>
+          )}
+        </Button>
+      </div>
+    </motion.div>
+  );
 }
 
 function FormView({
@@ -2213,6 +2532,8 @@ function FormView({
   onLogout,
   onFeedback,
   dailyUsage,
+  isPro,
+  onUpgrade,
 }: FormViewProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2265,6 +2586,7 @@ function FormView({
             userName={userName}
             onLogout={onLogout}
             onFeedback={onFeedback}
+            isPro={isPro}
           />
         ) : (
           <span className="text-xs text-muted-foreground font-body">
@@ -2613,71 +2935,17 @@ function FormView({
           <div className="mt-auto pt-2 flex flex-col gap-2">
             {(() => {
               const isLimitReached =
-                error === "DAILY_LIMIT_REACHED" ||
-                (dailyUsage != null &&
-                  Number(dailyUsage.count) >= Number(dailyUsage.limit));
+                !isPro &&
+                (error === "DAILY_LIMIT_REACHED" ||
+                  (dailyUsage != null &&
+                    Number(dailyUsage.count) >= Number(dailyUsage.limit)));
+
               if (isLimitReached && !isLoading) {
-                // Calculate reset time
-                let resetText = "";
-                if (dailyUsage) {
-                  const resetMs = Number(dailyUsage.resetAt) / 1_000_000;
-                  const diffMs = resetMs - Date.now();
-                  if (diffMs > 0) {
-                    const hrs = Math.floor(diffMs / 3_600_000);
-                    const mins = Math.floor((diffMs % 3_600_000) / 60_000);
-                    resetText =
-                      hrs > 0 ? `${hrs}h ${mins}m` : `${mins} minutos`;
-                  }
-                }
                 return (
-                  <div
-                    data-ocid="freemium.limit_card"
-                    className="rounded-2xl border border-amber-500/30 bg-amber-500/8 p-5 flex flex-col gap-3"
-                    style={{
-                      background: "oklch(0.72 0.12 75 / 0.08)",
-                      borderColor: "oklch(0.72 0.12 75 / 0.35)",
-                    }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ background: "oklch(0.72 0.12 75 / 0.15)" }}
-                      >
-                        <Lock
-                          className="w-4 h-4"
-                          style={{ color: "oklch(0.80 0.12 75)" }}
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p
-                          className="font-display font-bold text-sm leading-tight mb-1"
-                          style={{ color: "oklch(0.85 0.10 75)" }}
-                        >
-                          Límite diario alcanzado
-                        </p>
-                        <p className="font-body text-xs leading-relaxed text-muted-foreground">
-                          Has alcanzado el límite gratuito de{" "}
-                          {dailyUsage ? Number(dailyUsage.limit) : 3} anuncios
-                          por día. Actualiza a{" "}
-                          <span
-                            className="font-semibold"
-                            style={{ color: "oklch(0.85 0.10 75)" }}
-                          >
-                            AdCreator AI Pro
-                          </span>{" "}
-                          para anuncios ilimitados.
-                        </p>
-                        {resetText && (
-                          <p
-                            className="font-body text-xs mt-2 font-medium"
-                            style={{ color: "oklch(0.72 0.10 75)" }}
-                          >
-                            🔄 Se restablece en {resetText}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <UpgradeScreen
+                    onUpgrade={onUpgrade}
+                    dailyUsage={dailyUsage}
+                  />
                 );
               }
               return (
@@ -2701,14 +2969,25 @@ function FormView({
                       </>
                     )}
                   </Button>
-                  {/* Usage badge */}
-                  {dailyUsage && !isLoading && (
+                  {/* Usage badge: Pro shows unlimited, free shows count */}
+                  {!isLoading && (
                     <p
                       data-ocid="freemium.usage_badge"
-                      className="text-center text-xs text-muted-foreground font-body"
+                      className="text-center text-xs font-body"
+                      style={{
+                        color: isPro
+                          ? "oklch(0.82 0.16 75)"
+                          : "oklch(0.60 0.04 255)",
+                      }}
                     >
-                      {Number(dailyUsage.count)}/{Number(dailyUsage.limit)}{" "}
-                      anuncios generados hoy
+                      {isPro ? (
+                        "✨ Pro — Anuncios ilimitados"
+                      ) : dailyUsage ? (
+                        <>
+                          {Number(dailyUsage.count)}/{Number(dailyUsage.limit)}{" "}
+                          anuncios generados hoy
+                        </>
+                      ) : null}
                     </p>
                   )}
                 </>

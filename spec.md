@@ -2,81 +2,61 @@
 
 ## Current State
 
-- Full-stack app with Motoko backend + React/TypeScript frontend.
-- User authentication via Internet Identity (Google + Email).
-- Ad generation form: business name, type, city, promo, tone, platform, caption length.
-- "My Ads" section: backend-stored per-user ads with copy, download, delete.
-- Photo Ad feature: upload a photo and generate an ad from it.
-- Admin Dashboard: analytics, users table, platform/business-type charts.
-- Per-user profiles stored in backend.
-- No freemium limits, no feedback system.
+The app is a full-stack SaaS tool for small businesses to generate social media ads. It has:
+
+- Auth via Internet Identity (login/logout)
+- Ad generation form (business name, type, city, promotion, tone, platform)
+- AI image generation per business type (static assets 1080x1080)
+- My Ads dashboard (saved per user via backend)
+- Freemium: 3 ads/day limit for free users
+- Pro subscription: simulated upgrade, stored in localStorage, removes daily limits
+- Admin dashboard with analytics and feedback management
+- Photo Ad feature: upload a photo, AI detects category, generates caption
+- Pro badge shown in header for upgraded users
 
 ## Requested Changes (Diff)
 
 ### Add
 
-1. **Freemium daily ad limit (backend)**
-   - Track per-user daily ad generation count with a timestamp.
-   - Max 3 ads per 24-hour window for all users (no paid tier yet — just the cap).
-   - New query: `getDailyAdUsage()` → returns `{ count: Nat; limit: Nat; resetAt: Int }`.
-   - `saveAd` increments the counter; a new `checkAndIncrementDailyUsage()` shared function validates and increments atomically (traps if limit reached).
+1. **AI Logo Generator** (`logo` view)
+   - Form: business name, business type (same list), logo style (modern, luxury, minimal, bold)
+   - Canvas-based logo generation in the browser (no external API needed): renders business name + icon + style-based colors on a 1080x1080 canvas
+   - Free users: 3 logos/day limit tracked in localStorage (key: `adcreator_logo_usage_<principalId>`)
+   - After limit: show upgrade message "You've reached the free daily limit of 3 logos. Upgrade to AdCreator AI Pro for unlimited logo generation."
+   - Actions: preview logo, download (PNG), save to gallery, share
+   - Pro users: unlimited
 
-2. **Feedback system (backend)**
-   - New type: `Feedback { id: Nat; userEmail: Text; message: Text; submittedAt: Int; userName: Text }`.
-   - `submitFeedback(email: Text, message: Text)` — any authenticated user can submit; stores in a global feedback store.
-   - `getAllFeedback()` — admin-only query returning all feedback entries sorted by newest first.
+2. **AI Promo Video Generator** (`video` view)
+   - Form: business name, promotional message, target platform (Instagram Reels, TikTok, Facebook Reels)
+   - Video generated client-side using Canvas API + requestAnimationFrame animation loop recorded via MediaRecorder API (WebM) — vertical 9:16 format (540x960)
+   - Animated elements: dynamic background, animated text (business name + promo message), platform badge
+   - Free users: 1 free video trial, tracked in localStorage (key: `adcreator_video_usage_<principalId>`)
+   - After trial: show upgrade message "Video generation is a premium feature. Upgrade to AdCreator AI Pro to create unlimited promotional videos for your business."
+   - Actions: preview video (inline), download (WebM), share to Instagram/Facebook/TikTok
+   - Pro users: unlimited
 
-3. **Freemium limit UI (frontend)**
-   - In `handleGenerateAd`, call `getDailyAdUsage()` before generating. If count >= limit, show a friendly modal/alert:
-     "You've reached the free daily limit of 3 ads. Upgrade to AdCreator AI Pro for unlimited ads."
-   - Show a subtle usage counter in the form header: "X/3 ads used today".
-   - The limit banner should be dismissible and friendly.
-
-4. **"Send Feedback" button + form (frontend)**
-   - Add a "Send Feedback" button in the `UserAvatarChip` dropdown menu (visible on all views).
-   - When tapped, open a modal with:
-     - Email field (pre-filled with user info if available).
-     - Message textarea (suggestions / problems / general feedback).
-     - Submit button.
-   - On success, show a toast "¡Gracias por tu feedback!".
-
-5. **Admin feedback section (frontend)**
-   - In `AdminDashboardView`, add a new section below the Users table: "Feedback de Usuarios".
-   - Shows a list of all submitted feedback entries with: user name, email, message (truncated), and date.
-   - Admin calls `getAllFeedback()` to load the list.
-   - Each entry is expandable to show the full message.
+3. **Updated Pro Plan**
+   - Pro now covers: unlimited ads + unlimited AI images + unlimited AI logos + unlimited AI promo videos
+   - Updated upgrade screen to list all 4 benefits
+   - Updated landing page to show all 4 features
+   - Pro badge already exists, keep it
 
 ### Modify
 
-- `saveAd` backend: call `checkAndIncrementDailyUsage` before saving the ad.
-- `UserAvatarChip`: add "Send Feedback" item to the dropdown.
-- `AdminDashboardView`: add feedback section query and UI.
-- `backend.d.ts`: add new function signatures for feedback + daily usage.
+- `LandingView`: add two new CTA buttons — "Generate Logo with AI" and "Generate Promo Video" — below existing buttons
+- `App.tsx`: add `logo` and `video` to the `View` type; add state for logo/video usage; route to new views
+- `UpgradeScreen` (in FormView): update benefits list to include logos and videos
+- `proStorage.ts`: add helpers for logo usage and video usage (daily count with 24h window)
 
 ### Remove
 
-- Nothing removed.
+Nothing removed.
 
 ## Implementation Plan
 
-1. Update `main.mo`:
-   - Add daily usage tracking map `userDailyAdCounts: Map<Principal, {count: Nat; dayTimestamp: Int}>`.
-   - Add `checkAndIncrementDailyUsage(caller)` private func (resets if 24h elapsed, traps if >=3).
-   - Add `getDailyAdUsage()` public query.
-   - Call `checkAndIncrementDailyUsage` inside `saveAd`.
-   - Add `Feedback` type and `feedbackStore: Array<Feedback>` (global list).
-   - Add `submitFeedback(email, message)` — auth check, store entry.
-   - Add `getAllFeedback()` — admin-only query.
-
-2. Regenerate `backend.d.ts` with new types/functions.
-
-3. Frontend — freemium limit:
-   - Add `useDailyAdUsage` hook that queries `getDailyAdUsage()`.
-   - In `FormView`, display usage counter near submit button.
-   - In `handleGenerateAd` (App.tsx), check limit before generating; show limit modal if reached.
-
-4. Frontend — feedback:
-   - Add `FeedbackModal` component.
-   - Update `UserAvatarChip` to accept `onFeedback` prop and show "Send Feedback" menu item.
-   - Wire up mutation to `submitFeedback`.
-   - In `AdminDashboardView`, add `getAllFeedback` query and feedback list section.
+1. Extend `proStorage.ts` with `getLogoUsage / incrementLogoUsage / getVideoUsage / incrementVideoUsage` helpers that track daily counts in localStorage with 24h reset
+2. Create `LogoGeneratorView` component: form → canvas render → preview → download/share actions; freemium gate after 3/day
+3. Create `PromoVideoView` component: form → canvas animation recorded via MediaRecorder → inline video preview → download/share; freemium gate after 1 free video
+4. Update `View` type and routing in `App.tsx` to include `logo` and `video` views
+5. Add landing page buttons for the two new features
+6. Update `UpgradeScreen` benefits to list all 4 Pro perks
