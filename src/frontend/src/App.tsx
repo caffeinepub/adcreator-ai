@@ -789,18 +789,42 @@ function HomeView({ onCreateAd }: { onCreateAd: () => void }) {
 
         {/* Overlaid title + tagline at bottom */}
         <div className="absolute bottom-0 left-0 right-0 px-6 pb-5">
-          <motion.h1
+          {/* Powered by AI badge */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              transition: { delay: 0.1, duration: 0.4 },
+            }}
+            className="mb-3"
+          >
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-primary/20 text-primary border border-primary/35 backdrop-blur-sm">
+              ✦ Powered by AI
+            </span>
+          </motion.div>
+
+          {/* Logo mark + wordmark lockup */}
+          <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{
               opacity: 1,
               y: 0,
               transition: { delay: 0.15, duration: 0.45 },
             }}
-            className="font-display text-4xl font-bold tracking-tight mb-1.5 leading-tight"
+            className="flex items-center gap-3 mb-1.5"
           >
-            <span className="text-gradient">AdCreator</span>{" "}
-            <span className="text-foreground">AI</span>
-          </motion.h1>
+            <img
+              src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+              alt="AdCreator AI logo"
+              className="w-12 h-12 object-contain logo-glow flex-shrink-0"
+            />
+            <h1 className="font-display text-5xl font-bold tracking-tight leading-tight">
+              <span className="text-gradient">AdCreator</span>{" "}
+              <span className="text-foreground">AI</span>
+            </h1>
+          </motion.div>
+
           <motion.p
             initial={{ opacity: 0, y: 8 }}
             animate={{
@@ -940,9 +964,11 @@ function FormView({
           <ArrowLeft className="w-4 h-4" />
         </button>
         <div className="flex items-center gap-2 flex-1">
-          <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-          </div>
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-7 h-7 object-contain logo-glow"
+          />
           <span className="font-display font-bold text-sm text-foreground">
             AdCreator AI
           </span>
@@ -1641,9 +1667,11 @@ function ResultView({
       {/* App Header */}
       <header className="flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-2 flex-1">
-          <div className="w-7 h-7 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
-            <Sparkles className="w-3.5 h-3.5 text-primary" />
-          </div>
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-7 h-7 object-contain logo-glow"
+          />
           <span className="font-display font-bold text-sm text-foreground">
             AdCreator AI
           </span>
