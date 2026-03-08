@@ -17,11 +17,14 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   AlertCircle,
   ArrowLeft,
+  BookMarked,
   Building2,
+  Camera,
   CheckCheck,
   Copy,
   Download,
   Heart,
+  ImageIcon,
   Layers,
   Loader2,
   MessageCircle,
@@ -32,7 +35,7 @@ import {
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 /* ═══════════════════════════════════════
@@ -40,7 +43,7 @@ import { toast } from "sonner";
 ═══════════════════════════════════════ */
 
 type AdTone = "profesional" | "urgente" | "divertido" | "promocion";
-type View = "home" | "form" | "result";
+type View = "landing" | "home" | "form" | "result" | "myads" | "photo_ad";
 type Platform = "instagram" | "facebook" | "tiktok";
 type CaptionLength = "short" | "long";
 
@@ -59,6 +62,34 @@ interface FormData {
 interface AdVersions {
   short: string;
   long: string;
+}
+
+interface SavedAd {
+  id: string;
+  businessName: string;
+  imageUrl: string | null;
+  captionShort: string;
+  captionLong: string;
+  platform: Platform;
+  savedAt: number;
+}
+
+/* ═══════════════════════════════════════
+   LOCALSTORAGE HELPERS
+═══════════════════════════════════════ */
+
+function loadSavedAds(): SavedAd[] {
+  try {
+    return JSON.parse(localStorage.getItem("adcreator_saved_ads") ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveAdToStorage(ad: SavedAd): void {
+  const ads = loadSavedAds();
+  ads.unshift(ad);
+  localStorage.setItem("adcreator_saved_ads", JSON.stringify(ads.slice(0, 50)));
 }
 
 /* ═══════════════════════════════════════
@@ -440,10 +471,10 @@ function downloadInstagramImage(businessName: string, adText: string) {
 
   // Bottom watermark
   ctx.fillStyle = "rgba(150, 150, 200, 0.55)";
-  ctx.font = "26px Arial, sans-serif";
+  ctx.font = "22px Arial, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("AdCreator AI", 540, 1048);
+  ctx.fillText("Created with AdCreator AI by Cristhian Paz", 540, 1048);
 
   // Download
   const link = document.createElement("a");
@@ -473,6 +504,7 @@ const pageVariants = {
 };
 
 const staggerContainer = {
+  initial: {},
   animate: {
     transition: {
       staggerChildren: 0.07,
@@ -490,11 +522,163 @@ const staggerItem = {
 };
 
 /* ═══════════════════════════════════════
+   MOBILE UTILITY FUNCTIONS
+═══════════════════════════════════════ */
+
+function isIOSSafari(): boolean {
+  const ua = navigator.userAgent;
+  return (
+    /iP(ad|hone|od)/i.test(ua) &&
+    /WebKit/i.test(ua) &&
+    !/CriOS|FxiOS|OPiOS|mercury/i.test(ua)
+  );
+}
+
+async function saveToPhotos(imageUrl: string): Promise<void> {
+  if (isIOSSafari()) {
+    // On iOS Safari: open image in new tab so user can long-press to save
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    window.open(objectUrl, "_blank");
+    toast.info('Mantén presionada la imagen y selecciona "Añadir a Fotos"', {
+      duration: 5000,
+    });
+  } else {
+    // Android / Desktop: trigger blob download
+    try {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = "anuncio-adcreator.jpg";
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+      toast.success("¡Imagen guardada!", { duration: 2000 });
+    } catch {
+      toast.error("Error al guardar. Intenta de nuevo.");
+    }
+  }
+}
+
+async function shareAdImage(imageUrl: string, adText: string): Promise<void> {
+  try {
+    const response = await fetch(imageUrl);
+    const blob = await response.blob();
+    const file = new File([blob], "anuncio-adcreator.jpg", {
+      type: blob.type,
+    });
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: "Mi Anuncio",
+        text: adText,
+      });
+    } else if (navigator.share) {
+      await navigator.share({ title: "Mi Anuncio", text: adText });
+    } else {
+      await navigator.clipboard.writeText(adText);
+      toast.success("¡Texto del anuncio copiado!", { duration: 2000 });
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name !== "AbortError") {
+      toast.error("No se pudo compartir. Intenta copiar el texto manualmente.");
+    }
+  }
+}
+
+/* ═══════════════════════════════════════
+   FULLSCREEN IMAGE MODAL
+═══════════════════════════════════════ */
+
+interface AdImageFullscreenModalProps {
+  imageUrl: string;
+  adText: string;
+  onClose: () => void;
+}
+
+function AdImageFullscreenModal({
+  imageUrl,
+  adText,
+  onClose,
+}: AdImageFullscreenModalProps) {
+  const ios = isIOSSafari();
+  return (
+    <motion.div
+      data-ocid="result.fullscreen_image_modal"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex flex-col bg-black"
+      onClick={onClose}
+    >
+      {/* Close button */}
+      <div className="absolute top-4 right-4 z-10">
+        <button
+          type="button"
+          data-ocid="result.fullscreen_close_button"
+          onClick={onClose}
+          className="w-10 h-10 rounded-full bg-black/60 backdrop-blur-sm flex items-center justify-center text-white border border-white/20"
+          aria-label="Cerrar"
+        >
+          ✕
+        </button>
+      </div>
+      {/* Image */}
+      <div
+        className="flex-1 flex items-center justify-center p-4"
+        onClick={(e) => e.stopPropagation()}
+        onKeyUp={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        <img
+          src={imageUrl}
+          alt="Imagen del anuncio"
+          className="max-w-full max-h-full object-contain rounded-xl"
+          style={{ maxHeight: "calc(100vh - 160px)" }}
+        />
+      </div>
+      {/* Bottom action bar */}
+      <div
+        className="p-4 flex flex-col gap-3 bg-black/80 backdrop-blur-sm"
+        onClick={(e) => e.stopPropagation()}
+        onKeyUp={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        {ios && (
+          <p className="text-center text-xs text-white/60">
+            iPhone: mantén presionada la imagen para guardar en Fotos
+          </p>
+        )}
+        <div className="flex gap-3">
+          <Button
+            data-ocid="result.fullscreen_save_button"
+            onClick={() => saveToPhotos(imageUrl)}
+            className="flex-1 h-12 font-semibold bg-white text-black hover:bg-white/90 rounded-xl gap-2"
+          >
+            📸 Guardar en Fotos
+          </Button>
+          <Button
+            data-ocid="result.fullscreen_share_button"
+            onClick={() => shareAdImage(imageUrl, adText)}
+            className="flex-1 h-12 font-semibold bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl gap-2"
+          >
+            <Share2 className="w-4 h-4" />
+            Compartir
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════
    APP ROOT
 ═══════════════════════════════════════ */
 
 export default function App() {
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>("landing");
   const [formData, setFormData] = useState<FormData>({
     businessName: "",
     businessType: "",
@@ -515,6 +699,7 @@ export default function App() {
   const [isGeneratingVariations, setIsGeneratingVariations] = useState(false);
   const [adImageUrl, setAdImageUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
 
   const handleGenerateAd = async (data?: FormData) => {
     const fd = data ?? formData;
@@ -533,6 +718,16 @@ export default function App() {
       const ad = generateAd(fd);
       setGeneratedAd(ad);
       setView("result");
+      // Save to My Ads
+      saveAdToStorage({
+        id: Date.now().toString(),
+        businessName: fd.businessName || fd.businessType,
+        imageUrl: AD_IMAGES[fd.businessType] ?? null,
+        captionShort: ad.short,
+        captionLong: ad.long,
+        platform: fd.platform,
+        savedAt: Date.now(),
+      });
       setIsGeneratingImage(true);
       setTimeout(() => {
         setAdImageUrl(AD_IMAGES[fd.businessType] ?? null);
@@ -629,6 +824,21 @@ export default function App() {
     }
   };
 
+  const handleSaveToPhotos = () => {
+    if (adImageUrl) saveToPhotos(adImageUrl);
+  };
+
+  const handleShareAdImage = () => {
+    if (adImageUrl && generatedAd) {
+      shareAdImage(
+        adImageUrl,
+        formData.captionLength === "short"
+          ? generatedAd.short
+          : generatedAd.long,
+      );
+    }
+  };
+
   const handleCreateAnother = () => {
     setFormData({
       businessName: "",
@@ -646,7 +856,7 @@ export default function App() {
     setVariations(null);
     setAdImageUrl(null);
     setIsGeneratingImage(false);
-    setView("home");
+    setView("landing");
   };
 
   return (
@@ -664,6 +874,23 @@ export default function App() {
 
       <div className="w-full max-w-[520px] min-h-dvh flex flex-col relative overflow-hidden">
         <AnimatePresence mode="wait">
+          {view === "landing" && (
+            <motion.div
+              key="landing"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <LandingView
+                onTryFree={() => setView("form")}
+                onMyAds={() => setView("myads")}
+                onPhotoAd={() => setView("photo_ad")}
+              />
+            </motion.div>
+          )}
+
           {view === "home" && (
             <motion.div
               key="home"
@@ -673,7 +900,10 @@ export default function App() {
               exit="exit"
               className="flex flex-col flex-1"
             >
-              <HomeView onCreateAd={() => setView("form")} />
+              <HomeView
+                onCreateAd={() => setView("form")}
+                onGoToMyAds={() => setView("myads")}
+              />
             </motion.div>
           )}
 
@@ -693,7 +923,7 @@ export default function App() {
                 error={error}
                 onBack={() => {
                   setError("");
-                  setView("home");
+                  setView("landing");
                 }}
                 onSubmit={() => handleGenerateAd()}
               />
@@ -719,6 +949,10 @@ export default function App() {
                 isGeneratingVariations={isGeneratingVariations}
                 adImageUrl={adImageUrl}
                 isGeneratingImage={isGeneratingImage}
+                showImageModal={showImageModal}
+                setShowImageModal={setShowImageModal}
+                onSaveToPhotos={handleSaveToPhotos}
+                onShareAdImage={handleShareAdImage}
                 onCopyShort={handleCopyShort}
                 onCopyLong={handleCopyLong}
                 onShare={handleShare}
@@ -733,7 +967,37 @@ export default function App() {
                   )
                 }
                 onCreateAnother={handleCreateAnother}
+                onGoToMyAds={() => setView("myads")}
               />
+            </motion.div>
+          )}
+
+          {view === "myads" && (
+            <motion.div
+              key="myads"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <MyAdsView
+                onBack={() => setView("landing")}
+                onCreateAd={() => setView("form")}
+              />
+            </motion.div>
+          )}
+
+          {view === "photo_ad" && (
+            <motion.div
+              key="photo_ad"
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="flex flex-col flex-1"
+            >
+              <PhotoAdView onBack={() => setView("landing")} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -743,10 +1007,320 @@ export default function App() {
 }
 
 /* ═══════════════════════════════════════
+   LANDING VIEW
+═══════════════════════════════════════ */
+
+function LandingView({
+  onTryFree,
+  onMyAds,
+  onPhotoAd,
+}: {
+  onTryFree: () => void;
+  onMyAds: () => void;
+  onPhotoAd: () => void;
+}) {
+  return (
+    <main className="flex flex-col flex-1 px-6 pt-12 pb-10">
+      {/* Logo */}
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0, transition: { duration: 0.45 } }}
+        className="flex items-center gap-3 mb-12"
+      >
+        <img
+          src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+          alt="AdCreator AI"
+          className="w-10 h-10 object-contain logo-glow"
+        />
+        <span className="font-display text-xl font-bold">
+          <span className="text-gradient">AdCreator</span>{" "}
+          <span className="text-foreground">AI</span>
+        </span>
+      </motion.div>
+
+      {/* Headline */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          transition: { delay: 0.1, duration: 0.5 },
+        }}
+        className="mb-6"
+      >
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-primary/20 text-primary border border-primary/35 mb-4">
+          <Sparkles className="w-2.5 h-2.5" /> Powered by AI
+        </span>
+        <h1 className="font-display text-4xl font-bold leading-tight tracking-tight mb-4">
+          <span className="text-gradient">Create Professional Ads</span>{" "}
+          <span className="text-foreground">for Your Business in Seconds</span>
+        </h1>
+        <p className="font-body text-foreground/65 text-base leading-relaxed">
+          Generate AI-powered ad captions and promotional images for Instagram,
+          Facebook, and TikTok in seconds. No design skills needed.
+        </p>
+      </motion.div>
+
+      {/* Feature highlights */}
+      <motion.div
+        variants={staggerContainer}
+        initial="initial"
+        animate="animate"
+        className="flex flex-col gap-3 mb-10"
+      >
+        {[
+          {
+            icon: "✍️",
+            title: "AI Captions",
+            desc: "Captions with emojis and hashtags in Spanish",
+          },
+          {
+            icon: "🖼️",
+            title: "AI Images",
+            desc: "1080×1080 promotional images for every business type",
+          },
+          {
+            icon: "📱",
+            title: "Multi-Platform",
+            desc: "Optimized for Instagram, Facebook, and TikTok",
+          },
+        ].map((f) => (
+          <motion.div
+            key={f.title}
+            variants={staggerItem}
+            className="flex items-start gap-3 glass-card rounded-xl p-4"
+          >
+            <span className="text-2xl flex-shrink-0">{f.icon}</span>
+            <div>
+              <p className="font-display font-semibold text-foreground text-sm">
+                {f.title}
+              </p>
+              <p className="font-body text-muted-foreground text-xs mt-0.5">
+                {f.desc}
+              </p>
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+
+      {/* CTAs */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{
+          opacity: 1,
+          y: 0,
+          transition: { delay: 0.4, duration: 0.4 },
+        }}
+        className="mt-auto flex flex-col gap-3"
+      >
+        <Button
+          data-ocid="landing.primary_button"
+          onClick={onTryFree}
+          size="lg"
+          className="w-full h-14 text-base font-semibold font-display tracking-wide bg-primary hover:bg-primary/90 text-primary-foreground btn-glow transition-all duration-300 rounded-xl gap-2"
+        >
+          <Sparkles className="w-5 h-5" />
+          Try It Free →
+        </Button>
+        <Button
+          data-ocid="landing.photo_ad_button"
+          onClick={onPhotoAd}
+          variant="outline"
+          size="lg"
+          className="w-full h-12 text-sm font-semibold font-display border-border bg-secondary/60 hover:bg-secondary text-foreground rounded-xl gap-2 transition-all duration-200"
+        >
+          📷 Generar Anuncio desde Foto
+        </Button>
+        <button
+          type="button"
+          data-ocid="landing.myads_link"
+          onClick={onMyAds}
+          className="w-full h-10 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          View My Ads
+        </button>
+      </motion.div>
+
+      {/* Footer */}
+      <motion.footer
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: { delay: 0.6 } }}
+        className="text-center mt-8"
+      >
+        <p className="text-xs text-muted-foreground">
+          © {new Date().getFullYear()}. Creado con ❤️ usando{" "}
+          <a
+            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            caffeine.ai
+          </a>
+        </p>
+      </motion.footer>
+    </main>
+  );
+}
+
+/* ═══════════════════════════════════════
+   MY ADS VIEW
+═══════════════════════════════════════ */
+
+function MyAdsView({
+  onBack,
+  onCreateAd,
+}: {
+  onBack: () => void;
+  onCreateAd: () => void;
+}) {
+  const [ads] = useState<SavedAd[]>(() => loadSavedAds());
+
+  return (
+    <div className="flex flex-col flex-1">
+      {/* Header */}
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-10">
+        <button
+          type="button"
+          data-ocid="myads.cancel_button"
+          onClick={onBack}
+          aria-label="Volver"
+          className="w-9 h-9 rounded-lg flex items-center justify-center bg-secondary hover:bg-secondary/80 border border-border text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-7 h-7 object-contain logo-glow"
+          />
+          <span className="font-display font-bold text-sm text-foreground">
+            Mis Anuncios
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground font-body">
+          {ads.length} guardados
+        </span>
+      </header>
+
+      <main className="flex flex-col flex-1 px-4 pt-5 pb-10">
+        {ads.length === 0 ? (
+          <motion.div
+            data-ocid="myads.empty_state"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col flex-1 items-center justify-center gap-6 text-center px-4"
+          >
+            <div className="w-20 h-20 rounded-2xl bg-secondary flex items-center justify-center text-4xl">
+              🖼️
+            </div>
+            <div>
+              <p className="font-display font-semibold text-foreground text-lg mb-2">
+                Aún no has creado anuncios
+              </p>
+              <p className="font-body text-muted-foreground text-sm">
+                Los anuncios que generes aparecerán aquí automáticamente.
+              </p>
+            </div>
+            <Button
+              data-ocid="myads.primary_button"
+              onClick={onCreateAd}
+              size="lg"
+              className="h-12 px-8 font-semibold font-display bg-primary hover:bg-primary/90 text-primary-foreground btn-glow rounded-xl gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              Crear mi primer anuncio
+            </Button>
+          </motion.div>
+        ) : (
+          <motion.div
+            data-ocid="myads.list"
+            variants={staggerContainer}
+            initial="initial"
+            animate="animate"
+            className="grid grid-cols-2 gap-3"
+          >
+            {ads.map((ad, idx) => {
+              const ocidSuffix = idx + 1;
+              return (
+                <motion.div
+                  key={ad.id}
+                  data-ocid={`myads.item.${ocidSuffix}`}
+                  variants={staggerItem}
+                  className="glass-card rounded-xl overflow-hidden flex flex-col"
+                >
+                  {/* Thumbnail */}
+                  <div className="aspect-square w-full overflow-hidden bg-secondary/50 flex-shrink-0">
+                    {ad.imageUrl ? (
+                      <img
+                        src={ad.imageUrl}
+                        alt={ad.businessName}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-3xl">
+                        🏪
+                      </div>
+                    )}
+                  </div>
+                  {/* Info */}
+                  <div className="p-3 flex flex-col gap-2 flex-1">
+                    <p className="font-display font-semibold text-foreground text-xs truncate">
+                      {ad.businessName}
+                    </p>
+                    <p className="font-body text-muted-foreground text-[10px] leading-relaxed line-clamp-2">
+                      {ad.captionShort.slice(0, 80)}
+                      {ad.captionShort.length > 80 ? "…" : ""}
+                    </p>
+                    {/* Actions */}
+                    <div className="flex gap-1.5 mt-auto pt-1">
+                      <button
+                        type="button"
+                        data-ocid={`myads.download_button.${ocidSuffix}`}
+                        onClick={() => ad.imageUrl && saveToPhotos(ad.imageUrl)}
+                        disabled={!ad.imageUrl}
+                        className="flex-1 h-8 rounded-lg text-[10px] font-semibold font-display bg-secondary/80 hover:bg-secondary border border-border text-foreground transition-all flex items-center justify-center gap-1 disabled:opacity-40"
+                      >
+                        <Download className="w-3 h-3" />
+                        Guardar
+                      </button>
+                      <button
+                        type="button"
+                        data-ocid={`myads.share_button.${ocidSuffix}`}
+                        onClick={() =>
+                          ad.imageUrl
+                            ? shareAdImage(ad.imageUrl, ad.captionShort)
+                            : navigator.clipboard.writeText(ad.captionShort)
+                        }
+                        className="flex-1 h-8 rounded-lg text-[10px] font-semibold font-display bg-primary/15 hover:bg-primary/25 border border-primary/25 text-primary transition-all flex items-center justify-center gap-1"
+                      >
+                        <Share2 className="w-3 h-3" />
+                        Compartir
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
    HOME VIEW
 ═══════════════════════════════════════ */
 
-function HomeView({ onCreateAd }: { onCreateAd: () => void }) {
+function HomeView({
+  onCreateAd,
+  onGoToMyAds,
+}: {
+  onCreateAd: () => void;
+  onGoToMyAds?: () => void;
+}) {
   return (
     <main className="flex flex-col flex-1 px-6 pt-14 pb-10">
       {/* ── Hero card: image + overlaid title + pills ── */}
@@ -786,6 +1360,21 @@ function HomeView({ onCreateAd }: { onCreateAd: () => void }) {
             Marketing con IA
           </span>
         </div>
+
+        {/* Top-right My Ads button */}
+        {onGoToMyAds && (
+          <div className="absolute top-4 right-4">
+            <button
+              type="button"
+              data-ocid="home.myads_link"
+              onClick={onGoToMyAds}
+              aria-label="Mis Anuncios"
+              className="w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center border border-white/20 text-white/80 hover:text-white hover:bg-black/60 transition-colors"
+            >
+              <BookMarked className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Overlaid title + tagline at bottom */}
         <div className="absolute bottom-0 left-0 right-0 px-6 pb-5">
@@ -1543,6 +2132,10 @@ interface ResultViewProps {
   isGeneratingVariations: boolean;
   adImageUrl: string | null;
   isGeneratingImage: boolean;
+  showImageModal: boolean;
+  setShowImageModal: (v: boolean) => void;
+  onSaveToPhotos: () => void;
+  onShareAdImage: () => void;
   onCopyShort: () => void;
   onCopyLong: () => void;
   onShare: () => void;
@@ -1550,6 +2143,7 @@ interface ResultViewProps {
   onGenerateVariations: () => void;
   onDownloadInstagram: () => void;
   onCreateAnother: () => void;
+  onGoToMyAds?: () => void;
 }
 
 function ResultView({
@@ -1562,6 +2156,10 @@ function ResultView({
   isGeneratingVariations,
   adImageUrl,
   isGeneratingImage,
+  showImageModal,
+  setShowImageModal,
+  onSaveToPhotos,
+  onShareAdImage,
   onCopyShort,
   onCopyLong,
   onShare,
@@ -1569,6 +2167,7 @@ function ResultView({
   onGenerateVariations,
   onDownloadInstagram,
   onCreateAnother,
+  onGoToMyAds,
 }: ResultViewProps) {
   const hashtagString =
     BUSINESS_DATA[formData.businessType]?.hashtags ?? "#Negocio #Ofertas";
@@ -1681,6 +2280,18 @@ function ResultView({
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
           Anuncio generado
         </Badge>
+        {/* My Ads icon button */}
+        {onGoToMyAds && (
+          <button
+            type="button"
+            data-ocid="result.myads_link"
+            onClick={onGoToMyAds}
+            aria-label="Mis Anuncios"
+            className="w-9 h-9 rounded-lg flex items-center justify-center bg-secondary hover:bg-secondary/80 border border-border text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ml-1"
+          >
+            <BookMarked className="w-4 h-4" />
+          </button>
+        )}
       </header>
 
       <main className="flex flex-col flex-1 px-5 pt-5 pb-10 gap-5">
@@ -1700,6 +2311,21 @@ function ResultView({
                 </span>
               </div>
             </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Fullscreen image modal */}
+        <AnimatePresence>
+          {showImageModal && adImageUrl && (
+            <AdImageFullscreenModal
+              imageUrl={adImageUrl}
+              adText={
+                formData.captionLength === "short"
+                  ? generatedAd.short
+                  : generatedAd.long
+              }
+              onClose={() => setShowImageModal(false)}
+            />
           )}
         </AnimatePresence>
 
@@ -1764,26 +2390,74 @@ function ResultView({
                 }}
                 className="flex flex-col gap-3"
               >
-                <div
+                {/* Clickable image with watermark overlay and tap hint */}
+                <button
+                  type="button"
                   data-ocid="result.ad_image_preview"
-                  className="w-full rounded-xl overflow-hidden"
+                  className="w-full rounded-xl overflow-hidden relative cursor-pointer p-0 border-0 bg-transparent"
                   style={{ aspectRatio: "1/1" }}
+                  onClick={() => setShowImageModal(true)}
+                  aria-label="Ver imagen completa"
                 >
                   <img
                     src={adImageUrl}
                     alt="Imagen publicitaria generada por IA"
                     className="w-full h-full object-cover"
                   />
+                  {/* Watermark overlay */}
+                  <div
+                    className="absolute bottom-0 left-0 right-0 py-2 px-3 flex items-center justify-center"
+                    style={{
+                      background:
+                        "linear-gradient(to top, rgba(0,0,0,0.7), transparent)",
+                    }}
+                  >
+                    <span className="text-white/70 text-[10px] font-medium text-center">
+                      Created with AdCreator AI by Cristhian Paz
+                    </span>
+                  </div>
+                  {/* Tap hint */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20 rounded-xl">
+                    <span className="text-white text-xs font-medium bg-black/50 px-3 py-1.5 rounded-full">
+                      Toca para ver completo
+                    </span>
+                  </div>
+                </button>
+                {/* 3 action buttons */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    data-ocid="result.save_to_photos_button"
+                    onClick={() => onSaveToPhotos()}
+                    className="flex-1 h-11 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 text-white border border-white/20"
+                  >
+                    📸 Guardar en Fotos
+                  </button>
+                  <button
+                    type="button"
+                    data-ocid="result.share_ad_image_button"
+                    onClick={() => onShareAdImage()}
+                    className="flex-1 h-11 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center gap-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
+                  >
+                    <Share2 className="w-4 h-4" />
+                    Compartir
+                  </button>
+                  <a
+                    data-ocid="result.download_ad_image_button"
+                    href={adImageUrl}
+                    download="anuncio-ia.jpg"
+                    className="h-11 w-11 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center bg-secondary/80 hover:bg-secondary text-foreground border border-border"
+                    aria-label="Descargar"
+                  >
+                    <Download className="w-4 h-4" />
+                  </a>
                 </div>
-                <a
-                  data-ocid="result.download_ad_image_button"
-                  href={adImageUrl}
-                  download="anuncio-ia.jpg"
-                  className="flex items-center justify-center gap-2 w-full h-11 rounded-xl font-semibold font-display text-sm transition-all duration-200 bg-primary hover:bg-primary/90 text-primary-foreground btn-glow"
-                >
-                  <Download className="w-4 h-4" />
-                  Descargar Imagen del Anuncio
-                </a>
+                {/* iOS hint */}
+                {isIOSSafari() && (
+                  <p className="text-center text-[11px] text-muted-foreground">
+                    iPhone: mantén presionada la imagen para guardar en Fotos
+                  </p>
+                )}
               </motion.div>
             ) : (
               <div
@@ -1879,7 +2553,7 @@ function ResultView({
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  Copiar
+                  Copiar Caption
                 </>
               )}
             </Button>
@@ -2194,6 +2868,860 @@ function ResultView({
             </a>
           </p>
         </motion.footer>
+      </main>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   PHOTO AD VIEW
+═══════════════════════════════════════ */
+
+const PHOTO_KEYWORD_MAP: Record<string, string[]> = {
+  restaurant: [
+    "food",
+    "comida",
+    "restaurant",
+    "pizza",
+    "burger",
+    "taco",
+    "sushi",
+    "cafe",
+    "coffee",
+    "sandwich",
+    "meal",
+    "dish",
+    "plate",
+    "eat",
+    "bread",
+    "bakery",
+    "pan",
+    "pastel",
+    "cake",
+    "donut",
+    "pollo",
+    "chicken",
+    "steak",
+  ],
+  barberShop: [
+    "barber",
+    "barberia",
+    "corte",
+    "haircut",
+    "hair",
+    "peluqueria",
+    "fade",
+    "beard",
+  ],
+  salon: [
+    "salon",
+    "beauty",
+    "nail",
+    "nails",
+    "spa",
+    "makeup",
+    "belleza",
+    "unas",
+    "manicure",
+  ],
+  clothingStore: [
+    "cloth",
+    "ropa",
+    "fashion",
+    "shirt",
+    "dress",
+    "shoes",
+    "zapatos",
+    "outfit",
+    "moda",
+    "jeans",
+    "jacket",
+  ],
+  carDealer: ["car", "auto", "vehiculo", "truck", "moto", "vehicle", "carro"],
+  gym: [
+    "gym",
+    "fitness",
+    "workout",
+    "exercise",
+    "sport",
+    "crossfit",
+    "entrenamiento",
+  ],
+  pharmacy: ["pharmacy", "farmacia", "medicine", "pill", "salud", "health"],
+  electronicsStore: [
+    "phone",
+    "laptop",
+    "computer",
+    "tech",
+    "electronic",
+    "gadget",
+    "celular",
+    "tablet",
+  ],
+  bakery: [
+    "bakery",
+    "panaderia",
+    "bread",
+    "pastry",
+    "reposteria",
+    "cake",
+    "pan",
+  ],
+};
+
+const PHOTO_PROMO_MAP: Record<string, string> = {
+  restaurant:
+    "¡Visítanos y prueba nuestros deliciosos platillos! Sabores únicos que te encantarán.",
+  barberShop:
+    "¡El mejor corte de tu vida te espera! Reserva tu cita ahora y luce increíble.",
+  salon:
+    "¡Transforma tu look hoy! Tratamientos de belleza para realzar tu mejor versión.",
+  clothingStore:
+    "¡Renueva tu estilo con nuestras últimas colecciones! Moda para todos los gustos.",
+  carDealer:
+    "¡Encuentra el auto de tus sueños! Financiamiento disponible, test drive gratis.",
+  gym: "¡Transforma tu cuerpo y mente! Únete hoy y alcanza tus metas fitness.",
+  pharmacy:
+    "¡Tu salud es nuestra prioridad! Medicamentos y productos de bienestar al mejor precio.",
+  electronicsStore:
+    "¡Tecnología de última generación! Encuentra los mejores gadgets al precio más bajo.",
+  bakery:
+    "¡Pan artesanal horneado con amor cada día! Postres y delicias para toda la familia.",
+  cafe: "¡El café perfecto te espera! Ambiente acogedor y bebidas artesanales únicas.",
+  retail:
+    "¡Grandes ofertas y productos increíbles! Ven y descubre todo lo que tenemos.",
+};
+
+function detectCategoryFromFile(file: File): string {
+  const name = file.name.toLowerCase().replace(/[^a-z0-9]/g, " ");
+  for (const [category, keywords] of Object.entries(PHOTO_KEYWORD_MAP)) {
+    for (const kw of keywords) {
+      if (name.includes(kw)) return category;
+    }
+  }
+  return "restaurant";
+}
+
+const ANALYSIS_STEPS = [
+  "📤 Subiendo imagen...",
+  "🔍 Detectando producto...",
+  "✍️ Generando caption...",
+  "🎨 Creando layout del anuncio...",
+  "✅ ¡Casi listo!",
+];
+
+function PhotoAdView({ onBack }: { onBack: () => void }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [detectedCategory, setDetectedCategory] =
+    useState<string>("restaurant");
+  const [selectedCategory, setSelectedCategory] =
+    useState<string>("restaurant");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState(0);
+  const [result, setResult] = useState<AdVersions | null>(null);
+  const [copiedCaption, setCopiedCaption] = useState(false);
+  const [showPhotoModal, setShowPhotoModal] = useState(false);
+
+  // Animate through analysis steps when generating
+  useEffect(() => {
+    if (!isGenerating) {
+      setAnalysisStep(0);
+      return;
+    }
+    setAnalysisStep(0);
+    const timers = ANALYSIS_STEPS.slice(1).map((_, i) =>
+      setTimeout(() => setAnalysisStep(i + 1), (i + 1) * 600),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [isGenerating]);
+
+  const handleFileChange = (file: File) => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    const url = URL.createObjectURL(file);
+    setSelectedFile(file);
+    setPreviewUrl(url);
+    const category = detectCategoryFromFile(file);
+    setDetectedCategory(category);
+    setSelectedCategory(category);
+    setResult(null);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFileChange(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file?.type.startsWith("image/")) handleFileChange(file);
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedFile || !previewUrl) return;
+    setIsGenerating(true);
+    await new Promise((resolve) => setTimeout(resolve, 700));
+
+    const formDataForAd: FormData = {
+      businessName: "",
+      businessType: selectedCategory,
+      city: "tu ciudad",
+      promotion:
+        PHOTO_PROMO_MAP[selectedCategory] ??
+        "¡Visítanos hoy y descubre todo lo que tenemos para ti!",
+      discount: "",
+      whatsapp: "",
+      tone: "divertido",
+      platform: "instagram",
+      captionLength: "short",
+    };
+
+    const ad = generateAd(formDataForAd);
+    setResult(ad);
+
+    saveAdToStorage({
+      id: Date.now().toString(),
+      businessName: BUSINESS_TYPE_LABELS[selectedCategory] ?? selectedCategory,
+      imageUrl: previewUrl,
+      captionShort: ad.short,
+      captionLong: ad.long,
+      platform: "instagram",
+      savedAt: Date.now(),
+    });
+
+    setIsGenerating(false);
+    toast.success("¡Anuncio generado desde tu foto!", { duration: 2000 });
+  };
+
+  const handleCopyCaption = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.short);
+      setCopiedCaption(true);
+      toast.success("¡Caption copiado!", { duration: 2000 });
+      setTimeout(() => setCopiedCaption(false), 2000);
+    } catch {
+      toast.error("Error al copiar.");
+    }
+  };
+
+  const handleReset = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedFile(null);
+    setPreviewUrl(null);
+    setDetectedCategory("restaurant");
+    setSelectedCategory("restaurant");
+    setResult(null);
+    setCopiedCaption(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (galleryInputRef.current) galleryInputRef.current.value = "";
+  };
+
+  const hashtagChips = (
+    BUSINESS_DATA[selectedCategory]?.hashtags ?? "#Negocio #Ofertas"
+  )
+    .split(" ")
+    .filter(Boolean);
+
+  return (
+    <div className="flex flex-col flex-1">
+      {/* Header */}
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-background/80 backdrop-blur-md sticky top-0 z-10">
+        <button
+          type="button"
+          data-ocid="photo_ad.cancel_button"
+          onClick={onBack}
+          aria-label="Volver"
+          className="w-9 h-9 rounded-lg flex items-center justify-center bg-secondary hover:bg-secondary/80 border border-border text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+        >
+          <ArrowLeft className="w-4 h-4" />
+        </button>
+        <div className="flex items-center gap-2 flex-1">
+          <img
+            src="/assets/generated/adcreator-logo-icon-transparent.dim_200x200.png"
+            alt="AdCreator AI"
+            className="w-7 h-7 object-contain logo-glow"
+          />
+          <span className="font-display font-bold text-sm text-foreground">
+            Anuncio desde Foto
+          </span>
+        </div>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/15 text-primary border border-primary/30">
+          <Camera className="w-2.5 h-2.5" />
+          Nuevo
+        </span>
+      </header>
+
+      <main className="flex flex-col flex-1 px-5 pt-5 pb-10 gap-5">
+        {/* Fullscreen image modal */}
+        <AnimatePresence>
+          {showPhotoModal && previewUrl && (
+            <AdImageFullscreenModal
+              imageUrl={previewUrl}
+              adText={result?.short ?? ""}
+              onClose={() => setShowPhotoModal(false)}
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Upload zone */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
+          className="flex flex-col gap-3"
+        >
+          {/* Camera input — opens device camera */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="sr-only"
+            onChange={handleInputChange}
+            aria-label="Tomar foto con la cámara"
+          />
+          {/* Gallery input — opens photo library (NO capture attr) */}
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handleInputChange}
+            aria-label="Elegir foto de la galería"
+          />
+
+          {!previewUrl ? (
+            /* Drop zone */
+            <div
+              data-ocid="photo_ad.dropzone"
+              className="glass-card rounded-2xl border-2 border-dashed border-border/60 hover:border-primary/50 transition-all duration-200 flex flex-col items-center justify-center gap-4 p-8"
+              style={{ minHeight: 220 }}
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
+            >
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <Camera className="w-7 h-7 text-primary" />
+              </div>
+              <div className="text-center">
+                <p className="font-display font-semibold text-foreground text-base mb-1">
+                  Elige cómo subir tu foto
+                </p>
+                <p className="font-body text-muted-foreground text-sm">
+                  Cámara directa o desde tu galería
+                </p>
+                <p className="font-body text-muted-foreground text-xs mt-2">
+                  JPG, PNG, HEIC · Máx 20 MB
+                </p>
+              </div>
+              {/* Dual upload buttons */}
+              <div className="flex gap-3 w-full max-w-xs">
+                <button
+                  type="button"
+                  data-ocid="photo_ad.camera_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                  className="flex-1 h-12 rounded-xl font-semibold font-display text-sm bg-secondary/80 hover:bg-secondary border border-border text-foreground transition-all duration-200 flex items-center justify-center gap-2"
+                >
+                  <Camera className="w-4 h-4" />
+                  Cámara
+                </button>
+                <button
+                  type="button"
+                  data-ocid="photo_ad.gallery_button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    galleryInputRef.current?.click();
+                  }}
+                  className="flex-1 h-12 rounded-xl font-semibold font-display text-sm bg-primary hover:bg-primary/90 text-primary-foreground btn-glow transition-all duration-200 flex items-center justify-center gap-2"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  Galería
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Preview */
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                transition: { type: "spring", stiffness: 280, damping: 24 },
+              }}
+              className="flex flex-col gap-3"
+            >
+              <div
+                className="relative rounded-2xl overflow-hidden"
+                style={{ aspectRatio: "1/1" }}
+              >
+                <img
+                  src={previewUrl}
+                  alt="Foto subida"
+                  className="w-full h-full object-cover"
+                />
+                {/* Watermark overlay */}
+                <div
+                  className="absolute bottom-0 left-0 right-0 py-2 px-3 flex items-center justify-center"
+                  style={{
+                    background:
+                      "linear-gradient(to top, rgba(0,0,0,0.7), transparent)",
+                  }}
+                >
+                  <span className="text-white/70 text-[10px] font-medium text-center">
+                    Created with AdCreator AI by Cristhian Paz
+                  </span>
+                </div>
+              </div>
+              {/* Change photo — dual buttons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  data-ocid="photo_ad.camera_button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex-1 h-10 rounded-xl font-semibold font-display text-xs bg-secondary/80 hover:bg-secondary border border-border text-foreground transition-all duration-200 flex items-center justify-center gap-1.5"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  Cámara
+                </button>
+                <button
+                  type="button"
+                  data-ocid="photo_ad.gallery_button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="flex-1 h-10 rounded-xl font-semibold font-display text-xs bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary transition-all duration-200 flex items-center justify-center gap-1.5"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  Galería
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </motion.div>
+
+        {/* Detection + Category selector (only after photo selected) */}
+        <AnimatePresence>
+          {previewUrl && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0, transition: { duration: 0.35 } }}
+              exit={{ opacity: 0, y: -10 }}
+              className="flex flex-col gap-3"
+            >
+              {/* Detection badge */}
+              <div className="flex items-center gap-2">
+                <span
+                  data-ocid="photo_ad.detected_category"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-primary/15 text-primary border border-primary/30 font-body"
+                >
+                  🔍 Detectado:{" "}
+                  {BUSINESS_TYPE_LABELS[detectedCategory] ?? detectedCategory}
+                </span>
+              </div>
+
+              {/* Category override */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="font-body text-sm font-medium text-foreground/90">
+                  Tipo de Negocio
+                </Label>
+                <Select
+                  value={selectedCategory}
+                  onValueChange={(val) => setSelectedCategory(val)}
+                >
+                  <SelectTrigger
+                    data-ocid="photo_ad.category_select"
+                    className="h-11 bg-secondary/60 border-border text-foreground focus:ring-primary rounded-xl"
+                  >
+                    <SelectValue placeholder="Selecciona el tipo de negocio" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border rounded-xl">
+                    {Object.entries(BUSINESS_TYPE_LABELS).map(
+                      ([value, label]) => (
+                        <SelectItem
+                          key={value}
+                          value={value}
+                          className="text-foreground focus:bg-accent focus:text-accent-foreground rounded-lg"
+                        >
+                          {label}
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Generate button */}
+              {!result && (
+                <Button
+                  data-ocid="photo_ad.submit_button"
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  size="lg"
+                  className="w-full h-12 text-base font-semibold font-display tracking-wide bg-primary hover:bg-primary/90 text-primary-foreground btn-glow transition-all duration-300 rounded-xl gap-2 disabled:opacity-60"
+                >
+                  {isGenerating ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Analizando imagen…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />✨ Analizar y Generar
+                      Anuncio
+                    </>
+                  )}
+                </Button>
+              )}
+
+              {/* Loading state with animated analysis steps */}
+              {isGenerating && (
+                <div
+                  data-ocid="photo_ad.loading_state"
+                  className="space-y-3 py-2"
+                >
+                  <Skeleton className="h-4 w-3/4 bg-secondary rounded-full" />
+                  <Skeleton className="h-4 w-full bg-secondary rounded-full" />
+                  <Skeleton className="h-4 w-2/3 bg-secondary rounded-full" />
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={analysisStep}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.25 }}
+                      className="flex items-center justify-center pt-1"
+                    >
+                      <span
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold font-body"
+                        style={{
+                          background: "oklch(0.62 0.22 240 / 0.12)",
+                          color: "oklch(0.82 0.14 235)",
+                          border: "1px solid oklch(0.62 0.22 240 / 0.30)",
+                        }}
+                      >
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {ANALYSIS_STEPS[analysisStep]}
+                      </span>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Result section */}
+        <AnimatePresence>
+          {result && previewUrl && (
+            <motion.div
+              data-ocid="photo_ad.result_section"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0, transition: { duration: 0.4 } }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col gap-5"
+            >
+              <Separator className="bg-border/40" />
+
+              {/* AI Image section with uploaded photo */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { delay: 0.05, duration: 0.35 },
+                }}
+                className="glass-card rounded-2xl overflow-hidden"
+              >
+                <div className="px-5 pt-4 pb-3 flex items-center justify-between border-b border-border/30">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📸</span>
+                    <span className="text-[11px] font-semibold tracking-widest uppercase text-primary/80 font-body">
+                      Tu Foto como Anuncio
+                    </span>
+                  </div>
+                  <span
+                    className="text-[10px] font-medium rounded-full px-2.5 py-0.5"
+                    style={{
+                      background: "oklch(0.62 0.22 240 / 0.12)",
+                      color: "oklch(0.82 0.14 235)",
+                      border: "1px solid oklch(0.62 0.22 240 / 0.25)",
+                    }}
+                  >
+                    1080 × 1080
+                  </span>
+                </div>
+                <div className="p-4 flex flex-col gap-3">
+                  <button
+                    type="button"
+                    className="w-full rounded-xl overflow-hidden relative cursor-pointer p-0 border-0 bg-transparent"
+                    style={{ aspectRatio: "1/1" }}
+                    onClick={() => setShowPhotoModal(true)}
+                    aria-label="Ver imagen completa"
+                  >
+                    <img
+                      src={previewUrl}
+                      alt="Foto del producto"
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Top gradient + AdCreator AI badge */}
+                    <div
+                      className="absolute top-0 left-0 right-0 pt-3 pb-8 px-3 flex items-start justify-between"
+                      style={{
+                        background:
+                          "linear-gradient(to bottom, rgba(0,0,0,0.65), transparent)",
+                      }}
+                    >
+                      <span
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold text-white"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, oklch(0.55 0.25 265 / 0.85), oklch(0.50 0.28 295 / 0.85))",
+                          backdropFilter: "blur(4px)",
+                        }}
+                      >
+                        ✨ AdCreator AI
+                      </span>
+                    </div>
+                    {/* Bottom gradient + business label + caption subtitle */}
+                    <div
+                      className="absolute bottom-0 left-0 right-0 pt-10 pb-2 px-4 flex flex-col gap-0.5"
+                      style={{
+                        background:
+                          "linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.45), transparent)",
+                      }}
+                    >
+                      <span className="text-white font-display font-bold text-lg leading-tight drop-shadow">
+                        {BUSINESS_TYPE_LABELS[selectedCategory] ??
+                          selectedCategory}
+                      </span>
+                      <span className="text-white/80 text-xs font-body leading-snug line-clamp-2">
+                        {result.short.split("\n")[0] ?? ""}
+                      </span>
+                      <span className="text-white/50 text-[9px] font-medium mt-1 text-center">
+                        Created with AdCreator AI by Cristhian Paz
+                      </span>
+                    </div>
+                    {/* Tap hint */}
+                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20 rounded-xl">
+                      <span className="text-white text-xs font-medium bg-black/50 px-3 py-1.5 rounded-full">
+                        Toca para ver completo
+                      </span>
+                    </div>
+                  </button>
+                  {/* Action buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      data-ocid="photo_ad.save_to_photos_button"
+                      onClick={() => saveToPhotos(previewUrl)}
+                      className="flex-1 h-12 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center gap-2 bg-white/10 hover:bg-white/15 text-white border border-white/20"
+                    >
+                      📸 Guardar en Fotos
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid="photo_ad.share_button"
+                      onClick={() => shareAdImage(previewUrl, result.short)}
+                      className="flex-1 h-12 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center gap-2 bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      Compartir
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid="photo_ad.download_button"
+                      onClick={() =>
+                        downloadInstagramImage(
+                          BUSINESS_TYPE_LABELS[selectedCategory] ??
+                            selectedCategory,
+                          result.short,
+                        )
+                      }
+                      className="h-12 w-12 rounded-xl font-semibold font-display text-sm transition-all duration-200 flex items-center justify-center bg-secondary/80 hover:bg-secondary text-foreground border border-border"
+                      aria-label="Descargar 1080×1080"
+                    >
+                      <Download className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {isIOSSafari() && (
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      iPhone: mantén presionada la imagen para guardar en Fotos
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+
+              {/* Instagram preview card */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { delay: 0.1, duration: 0.35 },
+                }}
+              >
+                <InstagramPreviewCard
+                  businessName={
+                    BUSINESS_TYPE_LABELS[selectedCategory] ?? selectedCategory
+                  }
+                  adText={result.short}
+                  platform="instagram"
+                />
+              </motion.div>
+
+              {/* Caption card */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { delay: 0.15, duration: 0.35 },
+                }}
+                className="glass-card-ig rounded-2xl overflow-hidden"
+                style={{ borderTop: "2px solid oklch(0.72 0.18 230 / 0.80)" }}
+              >
+                <div className="px-5 pt-4 pb-0">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="inline-flex items-center justify-center w-6 h-6 rounded-md text-[10px] font-bold text-white"
+                        style={{
+                          background:
+                            "linear-gradient(135deg, oklch(0.68 0.22 15), oklch(0.62 0.24 330), oklch(0.58 0.22 280))",
+                        }}
+                      >
+                        IG
+                      </span>
+                      <span className="text-sm font-semibold text-foreground font-display">
+                        Caption Generada
+                      </span>
+                    </div>
+                    <span
+                      className="text-[10px] font-medium rounded-full px-2.5 py-0.5"
+                      style={{
+                        background: "oklch(0.68 0.18 235 / 0.15)",
+                        color: "oklch(0.82 0.14 235)",
+                        border: "1px solid oklch(0.68 0.18 235 / 0.30)",
+                      }}
+                    >
+                      Instagram Caption
+                    </span>
+                  </div>
+                  <p className="font-body text-foreground/90 text-sm leading-relaxed whitespace-pre-wrap min-h-[80px] pb-4">
+                    {result.short}
+                  </p>
+                </div>
+                <div
+                  className="px-5 pb-4 pt-3"
+                  style={{ borderTop: "1px solid oklch(0.62 0.22 240 / 0.15)" }}
+                >
+                  <Button
+                    data-ocid="photo_ad.copy_caption_button"
+                    onClick={handleCopyCaption}
+                    variant="outline"
+                    size="sm"
+                    className="w-full h-9 font-semibold font-display border-border bg-secondary/60 hover:bg-secondary text-foreground rounded-lg gap-1.5 text-xs transition-all duration-200"
+                  >
+                    {copiedCaption ? (
+                      <>
+                        <CheckCheck className="w-3.5 h-3.5 text-primary" />
+                        ¡Copiado!
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        Copiar Caption
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </motion.div>
+
+              {/* Hashtag chips */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { delay: 0.2, duration: 0.35 },
+                }}
+                className="glass-card rounded-2xl p-5"
+              >
+                <p className="text-[11px] font-semibold tracking-widest uppercase text-muted-foreground font-body mb-3">
+                  # Hashtags Sugeridos
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {hashtagChips.map((tag) => (
+                    <span
+                      key={tag}
+                      className="bg-primary/10 text-primary border border-primary/20 rounded-full px-3 py-1 text-xs font-medium font-body"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Action row */}
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { delay: 0.25, duration: 0.35 },
+                }}
+                className="flex gap-3"
+              >
+                <Button
+                  data-ocid="photo_ad.regenerate_button"
+                  onClick={handleGenerate}
+                  disabled={isGenerating}
+                  variant="outline"
+                  size="lg"
+                  className="flex-1 h-12 font-semibold font-display border-border bg-secondary hover:bg-secondary/80 text-foreground rounded-xl gap-2 transition-all duration-200 disabled:opacity-60"
+                >
+                  {isGenerating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Regenerar
+                </Button>
+                <Button
+                  data-ocid="photo_ad.new_photo_button"
+                  onClick={handleReset}
+                  size="lg"
+                  className="flex-1 h-12 font-semibold font-display bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 rounded-xl gap-2 transition-all duration-200"
+                >
+                  <Camera className="w-4 h-4" />
+                  Nueva Foto
+                </Button>
+              </motion.div>
+
+              {/* Footer */}
+              <motion.footer
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: { delay: 0.35 } }}
+                className="text-center mt-2"
+              >
+                <p className="text-xs text-muted-foreground">
+                  © {new Date().getFullYear()}. Creado con ❤️ usando{" "}
+                  <a
+                    href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    caffeine.ai
+                  </a>
+                </p>
+              </motion.footer>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );
