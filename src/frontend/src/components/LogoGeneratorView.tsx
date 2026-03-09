@@ -19,10 +19,11 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { buildLogoPrompt } from "../utils/aiPrompts";
 
 /* ── Types ─────────────────────────────────────── */
 
-type LogoStyle = "modern" | "luxury" | "minimal" | "bold";
+type LogoStyle = "modern" | "luxury" | "minimal" | "bold" | "tech" | "vintage";
 
 const LOGO_FREE_LIMIT = 3;
 
@@ -69,6 +70,22 @@ const STYLE_CONFIG: Record<
     desc: "Strong contrast, impactful design",
     icon: "▶",
   },
+  tech: {
+    label: "Tech",
+    bg: ["#020d1a", "#041a2e"],
+    accent: "#00d4ff",
+    font: "bold",
+    desc: "Circuit board, electric neon, futuristic",
+    icon: "⬡",
+  },
+  vintage: {
+    label: "Vintage",
+    bg: ["#12100a", "#1e1a0e"],
+    accent: "#c9a84c",
+    font: "bold",
+    desc: "Retro badge, warm amber, ornate borders",
+    icon: "❋",
+  },
 };
 
 const BUSINESS_ICONS: Record<string, string> = {
@@ -99,6 +116,109 @@ const BUSINESS_TYPE_LABELS: Record<string, string> = {
   bakery: "Panadería",
 };
 
+/* ── Seeded deterministic random ───────────────── */
+
+function seededRand(seed: number, index: number): number {
+  const x = Math.sin(seed * 9301 + index * 49297 + 233) * 1e9;
+  return x - Math.floor(x);
+}
+
+/* ── Geometric shape helpers ───────────────────── */
+
+function drawHexagon(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i - Math.PI / 6;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawDiamond(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx + r * 0.7, cy);
+  ctx.lineTo(cx, cy + r);
+  ctx.lineTo(cx - r * 0.7, cy);
+  ctx.closePath();
+}
+
+function drawTriangle(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx + r * 0.87, cy + r * 0.5);
+  ctx.lineTo(cx - r * 0.87, cy + r * 0.5);
+  ctx.closePath();
+}
+
+function drawRoundedSquare(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+) {
+  const x = cx - r;
+  const y = cy - r;
+  const size = r * 2;
+  const rad = r * 0.3;
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + size - rad, y);
+  ctx.quadraticCurveTo(x + size, y, x + size, y + rad);
+  ctx.lineTo(x + size, y + size - rad);
+  ctx.quadraticCurveTo(x + size, y + size, x + size - rad, y + size);
+  ctx.lineTo(x + rad, y + size);
+  ctx.quadraticCurveTo(x, y + size, x, y + size - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
+}
+
+type ShapeDrawer = (
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  r: number,
+) => void;
+
+function getShape(idx: number): ShapeDrawer {
+  const shapes: ShapeDrawer[] = [
+    (ctx, cx, cy, r) => {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.closePath();
+    },
+    drawHexagon,
+    drawDiamond,
+    drawTriangle,
+    drawRoundedSquare,
+    (ctx, cx, cy, r) => {
+      ctx.beginPath();
+      ctx.rect(cx - r, cy - r, r * 2, r * 2);
+      ctx.closePath();
+    },
+  ];
+  return shapes[idx % shapes.length];
+}
+
 /* ── Canvas logo renderer ───────────────────────── */
 
 function renderLogoToCanvas(
@@ -106,6 +226,7 @@ function renderLogoToCanvas(
   businessName: string,
   businessType: string,
   style: LogoStyle,
+  seed: number,
 ) {
   const size = 1080;
   canvas.width = size;
@@ -113,182 +234,544 @@ function renderLogoToCanvas(
   const ctx = canvas.getContext("2d")!;
   const cfg = STYLE_CONFIG[style];
 
-  // Background gradient
-  const bg = ctx.createLinearGradient(0, 0, size, size);
+  // Seeded layout variant (0–3)
+  const layoutType = Math.floor(seededRand(seed, 0) * 4);
+  // Shape type (0–5)
+  const shapeIdx = Math.floor(seededRand(seed, 1) * 6);
+  // Whether to swap accent/primary positions
+  const swapColors = seededRand(seed, 2) > 0.5;
+  // Gradient direction
+  const gradAngle = seededRand(seed, 3) * 360;
+
+  const drawShape = getShape(shapeIdx);
+
+  // ── Background ──────────────────────────────────
+  const gx = size * Math.cos((gradAngle * Math.PI) / 180);
+  const gy = size * Math.sin((gradAngle * Math.PI) / 180);
+  const bg = ctx.createLinearGradient(0, 0, gx, gy);
   bg.addColorStop(0, cfg.bg[0]);
   bg.addColorStop(1, cfg.bg[1]);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, size, size);
 
-  // Ambient glow circles
+  // Ambient glow
+  const glowX = size * (0.3 + seededRand(seed, 4) * 0.4);
+  const glowY = size * (0.2 + seededRand(seed, 5) * 0.3);
   const glow = ctx.createRadialGradient(
-    size * 0.7,
-    size * 0.3,
+    glowX,
+    glowY,
     0,
-    size * 0.7,
-    size * 0.3,
+    glowX,
+    glowY,
     size * 0.5,
   );
-  glow.addColorStop(0, `${cfg.accent}30`);
+  glow.addColorStop(0, `${cfg.accent}28`);
   glow.addColorStop(1, "transparent");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, size, size);
 
-  const glow2 = ctx.createRadialGradient(
-    size * 0.3,
-    size * 0.7,
-    0,
-    size * 0.3,
-    size * 0.7,
-    size * 0.4,
-  );
-  glow2.addColorStop(0, `${cfg.accent}20`);
-  glow2.addColorStop(1, "transparent");
-  ctx.fillStyle = glow2;
-  ctx.fillRect(0, 0, size, size);
-
-  // Style-specific decorative elements
+  // ── Style-specific background decorations ───────
   if (style === "modern") {
     // Geometric ring
-    ctx.strokeStyle = `${cfg.accent}40`;
+    ctx.strokeStyle = `${cfg.accent}35`;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(size / 2, size / 2, 320, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, 340, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.strokeStyle = `${cfg.accent}20`;
+    ctx.strokeStyle = `${cfg.accent}15`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(size / 2, size / 2, 360, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, 380, 0, Math.PI * 2);
     ctx.stroke();
   } else if (style === "luxury") {
-    // Corner ornaments
-    const drawCornerLine = (x: number, y: number, fx: number, fy: number) => {
-      ctx.strokeStyle = `${cfg.accent}60`;
+    // Ornamental corner lines
+    const drawCorner = (x: number, y: number, fx: number, fy: number) => {
+      ctx.strokeStyle = `${cfg.accent}55`;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + fx * 80, y);
+      ctx.lineTo(x + fx * 90, y);
       ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x, y + fy * 80);
+      ctx.lineTo(x, y + fy * 90);
       ctx.stroke();
     };
-    drawCornerLine(80, 80, 1, 1);
-    drawCornerLine(size - 80, 80, -1, 1);
-    drawCornerLine(80, size - 80, 1, -1);
-    drawCornerLine(size - 80, size - 80, -1, -1);
+    drawCorner(60, 60, 1, 1);
+    drawCorner(size - 60, 60, -1, 1);
+    drawCorner(60, size - 60, 1, -1);
+    drawCorner(size - 60, size - 60, -1, -1);
+    // Inner diamond decorative
+    ctx.strokeStyle = `${cfg.accent}20`;
+    ctx.lineWidth = 1;
+    ctx.save();
+    ctx.translate(size / 2, size / 2);
+    ctx.rotate(Math.PI / 4);
+    ctx.strokeRect(-300, -300, 600, 600);
+    ctx.restore();
   } else if (style === "bold") {
-    // Bold accent bar at top
-    const barGrad = ctx.createLinearGradient(0, 0, size, 0);
-    barGrad.addColorStop(0, "transparent");
-    barGrad.addColorStop(0.3, cfg.accent);
-    barGrad.addColorStop(0.7, cfg.accent);
-    barGrad.addColorStop(1, "transparent");
-    ctx.fillStyle = barGrad;
-    ctx.fillRect(0, 0, size, 12);
-    ctx.fillRect(0, size - 12, size, 12);
+    // Bold color band top and bottom
+    const bandGrad = ctx.createLinearGradient(0, 0, size, 0);
+    bandGrad.addColorStop(0, "transparent");
+    bandGrad.addColorStop(0.25, cfg.accent);
+    bandGrad.addColorStop(0.75, cfg.accent);
+    bandGrad.addColorStop(1, "transparent");
+    ctx.fillStyle = bandGrad;
+    ctx.fillRect(0, 0, size, 14);
+    ctx.fillRect(0, size - 14, size, 14);
   } else if (style === "minimal") {
-    // Subtle thin horizontal line through center
+    // Single thin horizontal accent
     const lineGrad = ctx.createLinearGradient(0, 0, size, 0);
     lineGrad.addColorStop(0, "transparent");
-    lineGrad.addColorStop(0.2, `${cfg.accent}25`);
-    lineGrad.addColorStop(0.8, `${cfg.accent}25`);
+    lineGrad.addColorStop(0.15, `${cfg.accent}20`);
+    lineGrad.addColorStop(0.85, `${cfg.accent}20`);
     lineGrad.addColorStop(1, "transparent");
     ctx.strokeStyle = lineGrad;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, size / 2 + 120);
-    ctx.lineTo(size, size / 2 + 120);
+    ctx.moveTo(0, size / 2 + 130);
+    ctx.lineTo(size, size / 2 + 130);
     ctx.stroke();
+  } else if (style === "tech") {
+    // Circuit board grid pattern
+    ctx.strokeStyle = `${cfg.accent}12`;
+    ctx.lineWidth = 1;
+    for (let gx2 = 0; gx2 < size; gx2 += 80) {
+      ctx.beginPath();
+      ctx.moveTo(gx2, 0);
+      ctx.lineTo(gx2, size);
+      ctx.stroke();
+    }
+    for (let gy2 = 0; gy2 < size; gy2 += 80) {
+      ctx.beginPath();
+      ctx.moveTo(0, gy2);
+      ctx.lineTo(size, gy2);
+      ctx.stroke();
+    }
+    // Circuit dots at intersections (random subset)
+    ctx.fillStyle = `${cfg.accent}30`;
+    for (let xi = 0; xi <= size; xi += 80) {
+      for (let yi = 0; yi <= size; yi += 80) {
+        if (seededRand(seed + xi + yi, 10) > 0.6) {
+          ctx.beginPath();
+          ctx.arc(xi, yi, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    // Corner brackets
+    ctx.strokeStyle = `${cfg.accent}45`;
+    ctx.lineWidth = 3;
+    for (const [bx, by] of [
+      [80, 80],
+      [size - 80, 80],
+      [80, size - 80],
+      [size - 80, size - 80],
+    ]) {
+      const fx = bx < size / 2 ? 1 : -1;
+      const fy = by < size / 2 ? 1 : -1;
+      ctx.beginPath();
+      ctx.moveTo(bx, by + fy * 40);
+      ctx.lineTo(bx, by);
+      ctx.lineTo(bx + fx * 40, by);
+      ctx.stroke();
+    }
+  } else if (style === "vintage") {
+    // Ornamental outer border
+    const pad = 40;
+    ctx.strokeStyle = `${cfg.accent}50`;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(pad, pad, size - pad * 2, size - pad * 2);
+    ctx.strokeStyle = `${cfg.accent}25`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+      pad + 12,
+      pad + 12,
+      size - (pad + 12) * 2,
+      size - (pad + 12) * 2,
+    );
+    // Diamond corner ornaments
+    for (const [ox, oy] of [
+      [pad + 6, pad + 6],
+      [size - pad - 6, pad + 6],
+      [pad + 6, size - pad - 6],
+      [size - pad - 6, size - pad - 6],
+    ]) {
+      ctx.save();
+      ctx.strokeStyle = `${cfg.accent}60`;
+      ctx.lineWidth = 1.5;
+      ctx.translate(ox, oy);
+      ctx.rotate(Math.PI / 4);
+      ctx.strokeRect(-5, -5, 10, 10);
+      ctx.restore();
+    }
   }
 
-  // Icon circle / emblem
-  const iconY = size / 2 - 160;
-  const iconR = style === "minimal" ? 70 : 90;
+  // ── Layout variants ──────────────────────────────
+  const name = (businessName || "My Business").toUpperCase();
+  const bizLabel = BUSINESS_TYPE_LABELS[businessType] ?? businessType;
+  const icon = BUSINESS_ICONS[businessType] ?? cfg.icon;
+  const lettermark = name.slice(0, Math.min(2, name.length));
+  const primaryColor = swapColors ? `${cfg.accent}` : `${cfg.accent}`;
+  const textColor = cfg.accent;
 
-  if (style !== "minimal") {
-    const emblemGrad = ctx.createRadialGradient(
+  if (layoutType === 0) {
+    // ── Layout 0: Emblem — centered shape + icon, name below ──
+    const shapeY = size * 0.35;
+    const shapeR = 110;
+
+    const emblemFill = ctx.createRadialGradient(
       size / 2,
-      iconY,
+      shapeY,
       0,
       size / 2,
-      iconY,
-      iconR,
+      shapeY,
+      shapeR,
     );
-    emblemGrad.addColorStop(0, `${cfg.accent}35`);
-    emblemGrad.addColorStop(1, `${cfg.accent}10`);
-    ctx.fillStyle = emblemGrad;
+    emblemFill.addColorStop(0, `${cfg.accent}30`);
+    emblemFill.addColorStop(1, `${cfg.accent}08`);
+    ctx.fillStyle = emblemFill;
+    drawShape(ctx, size / 2, shapeY, shapeR);
+    ctx.fill();
+    ctx.strokeStyle = `${cfg.accent}70`;
+    ctx.lineWidth = 2.5;
+    drawShape(ctx, size / 2, shapeY, shapeR);
+    ctx.stroke();
+
+    // Lettermark inside shape
+    const lmSize = shapeR * 1.0;
+    ctx.font = `bold ${lmSize}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = textColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = 16;
+    ctx.fillText(lettermark, size / 2, shapeY + 6);
+    ctx.shadowBlur = 0;
+
+    // Business name below
+    const nameFontSize = Math.max(
+      52,
+      Math.min(100, Math.floor(840 / Math.max(name.length, 1))),
+    );
+    ctx.font = `${cfg.font} ${nameFontSize}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = primaryColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = style === "bold" ? 22 : style === "tech" ? 14 : 8;
+    ctx.fillText(name, size / 2, size * 0.62);
+    ctx.shadowBlur = 0;
+
+    // Divider line
+    const divY = size * 0.71;
+    const dg = ctx.createLinearGradient(120, divY, size - 120, divY);
+    dg.addColorStop(0, "transparent");
+    dg.addColorStop(0.3, `${cfg.accent}55`);
+    dg.addColorStop(0.7, `${cfg.accent}55`);
+    dg.addColorStop(1, "transparent");
+    ctx.strokeStyle = dg;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(size / 2, iconY, iconR, 0, Math.PI * 2);
+    ctx.moveTo(120, divY);
+    ctx.lineTo(size - 120, divY);
+    ctx.stroke();
+
+    // Biz type label
+    ctx.font = "300 28px Arial, sans-serif";
+    ctx.fillStyle = `${cfg.accent}70`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(bizLabel.toUpperCase(), size / 2, size * 0.77);
+  } else if (layoutType === 1) {
+    // ── Layout 1: Lettermark — big monogram left, name+type stacked right ──
+    const monomX = size * 0.28;
+    const monomY = size * 0.5;
+    const monomR = 140;
+
+    // Background shape for monogram
+    const mFill = ctx.createRadialGradient(
+      monomX,
+      monomY,
+      0,
+      monomX,
+      monomY,
+      monomR,
+    );
+    mFill.addColorStop(0, `${cfg.accent}25`);
+    mFill.addColorStop(1, `${cfg.accent}05`);
+    ctx.fillStyle = mFill;
+    drawShape(ctx, monomX, monomY, monomR);
+    ctx.fill();
+    ctx.strokeStyle = `${cfg.accent}65`;
+    ctx.lineWidth = 3;
+    drawShape(ctx, monomX, monomY, monomR);
+    ctx.stroke();
+
+    // Monogram text
+    ctx.font = `bold ${monomR * 1.05}px Arial, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = textColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = 20;
+    ctx.fillText(lettermark, monomX, monomY + 6);
+    ctx.shadowBlur = 0;
+
+    // Right side: name
+    const rightX = size * 0.62;
+    const maxNameWidth = size - rightX - 60;
+    let nfs = 72;
+    ctx.font = `${cfg.font} ${nfs}px Arial, sans-serif`;
+    while (ctx.measureText(name).width > maxNameWidth && nfs > 30) {
+      nfs -= 4;
+      ctx.font = `${cfg.font} ${nfs}px Arial, sans-serif`;
+    }
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = primaryColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = 10;
+    ctx.fillText(name, rightX, size * 0.46);
+    ctx.shadowBlur = 0;
+
+    // Divider
+    const smallDivY = size * 0.54;
+    ctx.strokeStyle = `${cfg.accent}45`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(rightX, smallDivY);
+    ctx.lineTo(size - 60, smallDivY);
+    ctx.stroke();
+
+    // Biz type
+    ctx.font = "26px Arial, sans-serif";
+    ctx.fillStyle = `${cfg.accent}65`;
+    ctx.fillText(bizLabel.toUpperCase(), rightX, size * 0.59);
+  } else if (layoutType === 2) {
+    // ── Layout 2: Icon+Stack — small icon top-left, large name, divider, type ──
+    const iconX = size * 0.15;
+    const iconY = size * 0.22;
+    const iconR = 55;
+
+    const iF = ctx.createRadialGradient(iconX, iconY, 0, iconX, iconY, iconR);
+    iF.addColorStop(0, `${cfg.accent}30`);
+    iF.addColorStop(1, `${cfg.accent}08`);
+    ctx.fillStyle = iF;
+    drawShape(ctx, iconX, iconY, iconR);
     ctx.fill();
     ctx.strokeStyle = `${cfg.accent}60`;
-    ctx.lineWidth = style === "bold" ? 3 : 1.5;
-    ctx.beginPath();
-    ctx.arc(size / 2, iconY, iconR, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    drawShape(ctx, iconX, iconY, iconR);
     ctx.stroke();
+
+    ctx.font = `${iconR * 0.95}px Arial`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(icon, iconX, iconY + 3);
+
+    // Large left-aligned name
+    const leftX = size * 0.1;
+    const nameFontSize2 = Math.max(
+      50,
+      Math.min(110, Math.floor(800 / Math.max(name.length, 1))),
+    );
+    ctx.font = `${cfg.font} ${nameFontSize2}px Arial, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = primaryColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = style === "bold" ? 20 : 10;
+
+    // Word wrap
+    const words = name.split(" ");
+    const maxW = size - leftX * 2;
+    const lines: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur + (cur ? " " : "") + w;
+      if (ctx.measureText(test).width > maxW && cur) {
+        lines.push(cur);
+        cur = w;
+      } else cur = test;
+    }
+    if (cur) lines.push(cur);
+
+    const lineH = nameFontSize2 * 1.15;
+    let nameStartY = size * 0.46 - (lines.length - 1) * lineH * 0.5;
+    for (const ln of lines) {
+      ctx.fillText(ln, leftX, nameStartY);
+      nameStartY += lineH;
+    }
+    ctx.shadowBlur = 0;
+
+    // Horizontal rule
+    const hrY = nameStartY + 20;
+    const hrG = ctx.createLinearGradient(leftX, hrY, size * 0.85, hrY);
+    hrG.addColorStop(0, `${cfg.accent}60`);
+    hrG.addColorStop(1, "transparent");
+    ctx.strokeStyle = hrG;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(leftX, hrY);
+    ctx.lineTo(size * 0.85, hrY);
+    ctx.stroke();
+
+    // Type label
+    ctx.font = "28px Arial, sans-serif";
+    ctx.fillStyle = `${cfg.accent}65`;
+    ctx.textAlign = "left";
+    ctx.fillText(bizLabel.toUpperCase(), leftX, hrY + 48);
+  } else {
+    // ── Layout 3: Full-width wordmark ──
+    // Ultra-large auto-fitting name
+    let wfs = 150;
+    const maxW2 = size * 0.88;
+    ctx.font = `${cfg.font} ${wfs}px Arial, sans-serif`;
+    while (ctx.measureText(name).width > maxW2 && wfs > 40) {
+      wfs -= 4;
+      ctx.font = `${cfg.font} ${wfs}px Arial, sans-serif`;
+    }
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = primaryColor;
+    ctx.shadowColor = cfg.accent;
+    ctx.shadowBlur = style === "luxury" ? 16 : 12;
+    ctx.fillText(name, size / 2, size * 0.46);
+    ctx.shadowBlur = 0;
+
+    // Accent line below
+    const accentLineY = size * 0.57;
+    const alG = ctx.createLinearGradient(
+      100,
+      accentLineY,
+      size - 100,
+      accentLineY,
+    );
+    alG.addColorStop(0, "transparent");
+    alG.addColorStop(0.2, `${cfg.accent}80`);
+    alG.addColorStop(0.8, `${cfg.accent}80`);
+    alG.addColorStop(1, "transparent");
+    ctx.strokeStyle = alG;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(100, accentLineY);
+    ctx.lineTo(size - 100, accentLineY);
+    ctx.stroke();
+
+    // Type label
+    ctx.font = "300 30px Arial, sans-serif";
+    ctx.fillStyle = `${cfg.accent}70`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(bizLabel.toUpperCase(), size / 2, accentLineY + 60);
+
+    // Small decorative dots flanking the type label
+    const dotY = accentLineY + 60;
+    const dotX1 = size / 2 - 160;
+    const dotX2 = size / 2 + 160;
+    ctx.fillStyle = `${cfg.accent}50`;
+    for (const [dx, dy] of [
+      [dotX1, dotY],
+      [dotX2, dotY],
+    ]) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
-  // Business emoji/icon
-  const icon = BUSINESS_ICONS[businessType] ?? cfg.icon;
-  ctx.font = `${iconR * 0.9}px Arial`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(icon, size / 2, iconY);
-
-  // Business name — large centered
-  const name = (businessName || "My Business").toUpperCase();
-  const fontSize = Math.max(
-    48,
-    Math.min(96, Math.floor(800 / Math.max(name.length, 1))),
-  );
-  ctx.font = `${cfg.font} ${fontSize}px Arial, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = cfg.accent;
-
-  // Text shadow / glow
-  ctx.shadowColor = cfg.accent;
-  ctx.shadowBlur = style === "bold" ? 20 : style === "luxury" ? 12 : 8;
-  ctx.fillText(name, size / 2, size / 2 + 30);
-  ctx.shadowBlur = 0;
-
-  // Style name tag below
-  const styleLabel = STYLE_CONFIG[style].label.toUpperCase();
-  ctx.font = "300 26px Arial, sans-serif";
-  ctx.fillStyle = `${cfg.accent}80`;
-  ctx.letterSpacing = "0.3em";
-  ctx.fillText(`${styleLabel} DESIGN`, size / 2, size / 2 + 110);
-
-  // Business type subtitle
-  const bizLabel = BUSINESS_TYPE_LABELS[businessType] ?? businessType;
+  // ── Style tag (common to all layouts) ───────────
+  const styleTag = `${STYLE_CONFIG[style].label} Design`.toUpperCase();
   ctx.font = "22px Arial, sans-serif";
-  ctx.fillStyle = `${cfg.accent}55`;
-  ctx.fillText(bizLabel.toUpperCase(), size / 2, size / 2 + 160);
+  ctx.fillStyle = `${cfg.accent}40`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(styleTag, size / 2, size * 0.88);
 
-  // Divider lines around name
-  const divY = size / 2 + 78;
-  const divGrad = ctx.createLinearGradient(140, divY, size - 140, divY);
-  divGrad.addColorStop(0, "transparent");
-  divGrad.addColorStop(0.3, `${cfg.accent}50`);
-  divGrad.addColorStop(0.7, `${cfg.accent}50`);
-  divGrad.addColorStop(1, "transparent");
-  ctx.strokeStyle = divGrad;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(140, divY);
-  ctx.lineTo(size - 140, divY);
-  ctx.stroke();
-
-  // Watermark
+  // ── Watermark ────────────────────────────────────
   ctx.font = "18px Arial, sans-serif";
-  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(
     "Created with AdCreator AI by Cristhian Paz",
     size / 2,
-    size - 40,
+    size - 36,
+  );
+}
+
+/* ── AI Prompt Steps Animation ─────────────────── */
+
+const AI_STEPS = [
+  "🤖 Analyzing business profile…",
+  "🎨 Designing logo composition…",
+  "✨ Applying style elements…",
+  "🖌️ Rendering final logo…",
+];
+
+function AiStepsAnimation({ prompt }: { prompt: string }) {
+  const [step, setStep] = useState(0);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      if (i < AI_STEPS.length) {
+        setStep(i);
+      } else {
+        clearInterval(interval);
+        setDone(true);
+      }
+    }, 300);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-2 py-1">
+      {AI_STEPS.map((s, idx) => (
+        <motion.div
+          key={s}
+          initial={{ opacity: 0, x: -8 }}
+          animate={
+            idx <= step ? { opacity: 1, x: 0 } : { opacity: 0.25, x: -4 }
+          }
+          transition={{ duration: 0.3 }}
+          className="flex items-center gap-2 text-xs font-body"
+          style={{
+            color:
+              idx <= step ? "oklch(0.85 0.06 260)" : "oklch(0.50 0.04 260)",
+          }}
+        >
+          {idx < step ? (
+            <span className="text-emerald-400">✓</span>
+          ) : idx === step ? (
+            <Loader2 className="w-3 h-3 animate-spin text-primary" />
+          ) : (
+            <span className="opacity-30">○</span>
+          )}
+          {s}
+        </motion.div>
+      ))}
+      {done && prompt && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          transition={{ duration: 0.35 }}
+          className="mt-1 px-3 py-2 rounded-xl text-[10px] font-body leading-relaxed overflow-hidden"
+          style={{
+            background: "oklch(0.62 0.22 270 / 0.07)",
+            border: "1px solid oklch(0.62 0.22 270 / 0.18)",
+            color: "oklch(0.72 0.06 260)",
+          }}
+        >
+          <span className="font-semibold text-primary/80">AI Prompt:</span>{" "}
+          {prompt}
+        </motion.div>
+      )}
+    </div>
   );
 }
 
@@ -317,12 +800,16 @@ export function LogoGeneratorView({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [logoSeed, setLogoSeed] = useState(0);
+  const [aiPromptText, setAiPromptText] = useState("");
+  const [showAiSteps, setShowAiSteps] = useState(false);
+  const [showPromptChip, setShowPromptChip] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const limitReached = !isPro && logoCount >= LOGO_FREE_LIMIT;
 
-  // Sync preview canvas when style or inputs change
+  // Sync preview canvas when style, inputs, or seed changes
   useEffect(() => {
     if (!generated || !previewCanvasRef.current) return;
     renderLogoToCanvas(
@@ -330,8 +817,9 @@ export function LogoGeneratorView({
       businessName,
       businessType,
       logoStyle,
+      logoSeed,
     );
-  }, [generated, businessName, businessType, logoStyle]);
+  }, [generated, businessName, businessType, logoStyle, logoSeed]);
 
   const handleGenerate = async () => {
     if (!businessName.trim() || !businessType) {
@@ -340,8 +828,17 @@ export function LogoGeneratorView({
     }
     if (limitReached) return;
 
+    const newSeed = Math.floor(Math.random() * 1000);
+    setLogoSeed(newSeed);
+
+    const prompt = buildLogoPrompt(businessName, businessType, logoStyle);
+    setAiPromptText(prompt);
+    setShowAiSteps(true);
+    setShowPromptChip(false);
     setIsGenerating(true);
-    await new Promise((r) => setTimeout(r, 1200));
+
+    // Show AI steps animation for 1.2s
+    await new Promise((r) => setTimeout(r, 1300));
 
     if (canvasRef.current) {
       renderLogoToCanvas(
@@ -349,6 +846,7 @@ export function LogoGeneratorView({
         businessName,
         businessType,
         logoStyle,
+        newSeed,
       );
     }
     if (previewCanvasRef.current) {
@@ -357,10 +855,13 @@ export function LogoGeneratorView({
         businessName,
         businessType,
         logoStyle,
+        newSeed,
       );
     }
 
     setGenerated(true);
+    setShowAiSteps(false);
+    setShowPromptChip(true);
     setIsGenerating(false);
     onLogoGenerated();
     toast.success("¡Logo generado!", { duration: 2000 });
@@ -489,23 +990,23 @@ export function LogoGeneratorView({
       </header>
 
       <main className="flex flex-col flex-1 px-5 pt-5 pb-10 gap-5">
-        {/* Style selector */}
+        {/* Style selector — 3x2 grid for 6 styles */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0, transition: { duration: 0.35 } }}
           className="flex flex-col gap-2"
         >
           <p className="text-[11px] font-semibold tracking-widest uppercase text-primary/80 font-body">
-            Preferred Style
+            Logo Style
           </p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {(Object.keys(STYLE_CONFIG) as LogoStyle[]).map((s) => (
               <button
                 key={s}
                 type="button"
                 data-ocid={`logo.style_${s}_button`}
                 onClick={() => setLogoStyle(s)}
-                className="flex flex-col gap-1 p-3 rounded-xl border transition-all duration-200 text-left"
+                className="flex flex-col gap-1 p-2.5 rounded-xl border transition-all duration-200 text-left"
                 style={{
                   background:
                     logoStyle === s
@@ -517,9 +1018,9 @@ export function LogoGeneratorView({
                       : "oklch(0.30 0.03 255 / 0.50)",
                 }}
               >
-                <span className="text-lg">{STYLE_CONFIG[s].icon}</span>
+                <span className="text-base">{STYLE_CONFIG[s].icon}</span>
                 <span
-                  className="text-xs font-bold font-display"
+                  className="text-[11px] font-bold font-display"
                   style={{
                     color:
                       logoStyle === s
@@ -529,7 +1030,7 @@ export function LogoGeneratorView({
                 >
                   {STYLE_CONFIG[s].label}
                 </span>
-                <span className="text-[10px] text-muted-foreground font-body">
+                <span className="text-[9px] text-muted-foreground font-body leading-snug">
                   {STYLE_CONFIG[s].desc}
                 </span>
               </button>
@@ -603,6 +1104,20 @@ export function LogoGeneratorView({
             </div>
           </div>
         </motion.div>
+
+        {/* AI Steps animation */}
+        <AnimatePresence>
+          {showAiSteps && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="glass-card rounded-xl px-4 py-3"
+            >
+              <AiStepsAnimation prompt={aiPromptText} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Limit / Upgrade gate */}
         <AnimatePresence>
@@ -733,6 +1248,25 @@ export function LogoGeneratorView({
                 </span>
               </div>
 
+              {/* AI prompt chip below preview label */}
+              {showPromptChip && aiPromptText && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="px-3 py-2 rounded-xl text-[10px] font-body leading-relaxed"
+                  style={{
+                    background: "oklch(0.62 0.22 270 / 0.07)",
+                    border: "1px solid oklch(0.62 0.22 270 / 0.18)",
+                    color: "oklch(0.72 0.06 260)",
+                  }}
+                >
+                  <span className="font-semibold text-primary/80">
+                    ✨ AI Prompt:
+                  </span>{" "}
+                  {aiPromptText}
+                </motion.div>
+              )}
+
               {/* Preview canvas */}
               <div className="rounded-2xl overflow-hidden border border-border/40 shadow-xl">
                 <canvas
@@ -780,7 +1314,7 @@ export function LogoGeneratorView({
                 disabled={isGenerating || limitReached}
                 className="w-full h-11 rounded-xl font-display text-sm font-semibold border border-border bg-secondary/60 hover:bg-secondary text-foreground transition-all disabled:opacity-40"
               >
-                Regenerate
+                🎲 Regenerate (New Layout)
               </button>
             </motion.div>
           )}

@@ -1,62 +1,49 @@
-# AdCreator AI
+# AdCreator AI — AI Capabilities Upgrade
 
 ## Current State
 
-The app is a full-stack SaaS tool for small businesses to generate social media ads. It has:
-
-- Auth via Internet Identity (login/logout)
-- Ad generation form (business name, type, city, promotion, tone, platform)
-- AI image generation per business type (static assets 1080x1080)
-- My Ads dashboard (saved per user via backend)
-- Freemium: 3 ads/day limit for free users
-- Pro subscription: simulated upgrade, stored in localStorage, removes daily limits
-- Admin dashboard with analytics and feedback management
-- Photo Ad feature: upload a photo, AI detects category, generates caption
-- Pro badge shown in header for upgraded users
+The app is a full SaaS marketing tool for small businesses with:
+- Ad generation (captions with emojis/hashtags in Spanish)
+- Ad image display: static pre-generated images mapped by business type (AD_IMAGES map in App.tsx)
+- Logo Generator (LogoGeneratorView.tsx): canvas-based renderer with fixed color palettes per style — only changes colors, geometric shapes, and emoji icons; always looks the same for the same style
+- Promo Video Generator (PromoVideoView.tsx): simple canvas animation with text, particles, and a platform-colored bar — basic, low visual variety
+- Smart prompt: does NOT exist — no prompt generation step before content creation
+- All content generation is template-based
 
 ## Requested Changes (Diff)
 
 ### Add
 
-1. **AI Logo Generator** (`logo` view)
-   - Form: business name, business type (same list), logo style (modern, luxury, minimal, bold)
-   - Canvas-based logo generation in the browser (no external API needed): renders business name + icon + style-based colors on a 1080x1080 canvas
-   - Free users: 3 logos/day limit tracked in localStorage (key: `adcreator_logo_usage_<principalId>`)
-   - After limit: show upgrade message "You've reached the free daily limit of 3 logos. Upgrade to AdCreator AI Pro for unlimited logo generation."
-   - Actions: preview logo, download (PNG), save to gallery, share
-   - Pro users: unlimited
-
-2. **AI Promo Video Generator** (`video` view)
-   - Form: business name, promotional message, target platform (Instagram Reels, TikTok, Facebook Reels)
-   - Video generated client-side using Canvas API + requestAnimationFrame animation loop recorded via MediaRecorder API (WebM) — vertical 9:16 format (540x960)
-   - Animated elements: dynamic background, animated text (business name + promo message), platform badge
-   - Free users: 1 free video trial, tracked in localStorage (key: `adcreator_video_usage_<principalId>`)
-   - After trial: show upgrade message "Video generation is a premium feature. Upgrade to AdCreator AI Pro to create unlimited promotional videos for your business."
-   - Actions: preview video (inline), download (WebM), share to Instagram/Facebook/TikTok
-   - Pro users: unlimited
-
-3. **Updated Pro Plan**
-   - Pro now covers: unlimited ads + unlimited AI images + unlimited AI logos + unlimited AI promo videos
-   - Updated upgrade screen to list all 4 benefits
-   - Updated landing page to show all 4 features
-   - Pro badge already exists, keep it
+- Smart prompt generation utility: a function `buildAdPrompt(businessName, businessType, city, promotion)` and `buildLogoPrompt(businessName, businessType, style)` and `buildVideoScenePrompt(businessName, businessType, promoMessage, sceneNumber)` that converts user input into a rich descriptive AI prompt shown as a UI step
+- A "Generating AI prompt..." visual step in the ad, logo, and video generation flows
+- In ad image generation: replace static template lookup with a canvas-rendered AI-style promo image that uses the smart prompt to visually communicate the product/business — unique per generation using randomized compositions, gradient combos, decorative layers, layout variations
+- In logo generation: replace the 4-style fixed canvas with a vastly more varied AI-style canvas system supporting 6 styles (modern, minimal, luxury, bold, tech, vintage) with randomized layout compositions, geometric constructs, letter-based logomarks, unique accent shapes — so each logo looks substantially different even for the same style
+- In video generation: replace the single-scene animation with a 4-scene story structure (Scene 1: hook, Scene 2: product highlight, Scene 3: promo message, Scene 4: CTA) with distinct visual themes per scene, animated scene transitions, and scene-specific color palettes
 
 ### Modify
 
-- `LandingView`: add two new CTA buttons — "Generate Logo with AI" and "Generate Promo Video" — below existing buttons
-- `App.tsx`: add `logo` and `video` to the `View` type; add state for logo/video usage; route to new views
-- `UpgradeScreen` (in FormView): update benefits list to include logos and videos
-- `proStorage.ts`: add helpers for logo usage and video usage (daily count with 24h window)
+- `handleGenerateAd` in App.tsx: replace `setAdImageUrl(AD_IMAGES[fd.businessType])` with a call to a new `generateAdImageOnCanvas(businessName, businessType, city, promotion)` function that renders a unique, AI-styled 1080×1080 promotional image on a canvas and returns a data URL
+- `LogoGeneratorView.tsx`: replace `renderLogoToCanvas` with a new `renderAILogoToCanvas` that supports 6 styles with randomized sub-variants so consecutive generations differ substantially; show a "Building AI prompt..." step before generating
+- `PromoVideoView.tsx`: upgrade `drawVideoFrame` to a 4-scene story arc with animated transitions between scenes; add a scene indicator UI; show smart prompt in UI before generating
 
 ### Remove
 
-Nothing removed.
+- `AD_IMAGES` static map usage for the primary ad image (can keep as fallback for My Ads view where a previously saved imageUrl is a static path)
+- Template-only approach in logo/video generators
 
 ## Implementation Plan
 
-1. Extend `proStorage.ts` with `getLogoUsage / incrementLogoUsage / getVideoUsage / incrementVideoUsage` helpers that track daily counts in localStorage with 24h reset
-2. Create `LogoGeneratorView` component: form → canvas render → preview → download/share actions; freemium gate after 3/day
-3. Create `PromoVideoView` component: form → canvas animation recorded via MediaRecorder → inline video preview → download/share; freemium gate after 1 free video
-4. Update `View` type and routing in `App.tsx` to include `logo` and `video` views
-5. Add landing page buttons for the two new features
-6. Update `UpgradeScreen` benefits to list all 4 Pro perks
+1. Add smart prompt utilities to a new `src/frontend/src/utils/aiPrompts.ts` file
+2. Update `App.tsx`:
+   - Add `generateAdImageOnCanvas()` function that builds a rich canvas composition (randomized gradient combos, decorative layers, business icon, business name, promo text overlay, AI badge, watermark) using the smart prompt context
+   - Replace the 1200ms static image timeout with the canvas generation call
+   - Show a "Generating AI image..." step in the result view while canvas renders
+3. Update `LogoGeneratorView.tsx`:
+   - Expand styles to 6 (add tech, vintage)
+   - Randomize logo compositions (lettermark vs emblem vs wordmark, background geometry, line art vs solid shapes)
+   - Add a "Building AI prompt..." animation step before rendering
+4. Update `PromoVideoView.tsx`:
+   - Implement 4-scene story structure with distinct backgrounds per scene
+   - Add animated scene transitions (crossfade, slide)
+   - Add scene-indicator dots in the preview UI
+   - Show the AI prompt text briefly before generating starts

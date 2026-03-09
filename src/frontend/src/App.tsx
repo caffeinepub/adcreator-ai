@@ -64,6 +64,7 @@ import { LogoGeneratorView } from "./components/LogoGeneratorView";
 import { PromoVideoView } from "./components/PromoVideoView";
 import { useActor } from "./hooks/useActor";
 import { useInternetIdentity } from "./hooks/useInternetIdentity";
+import { buildAdPrompt } from "./utils/aiPrompts";
 import {
   getLogoUsage,
   getVideoUsage,
@@ -205,19 +206,47 @@ const BUSINESS_DATA: Record<
    AD IMAGES MAP
 ═══════════════════════════════════════ */
 
-const AD_IMAGES: Record<string, string> = {
-  barberShop: "/assets/generated/ad-barbershop.dim_1080x1080.jpg",
-  cafe: "/assets/generated/ad-cafe.dim_1080x1080.jpg",
-  gym: "/assets/generated/ad-gym.dim_1080x1080.jpg",
-  restaurant: "/assets/generated/ad-restaurant.dim_1080x1080.jpg",
-  clothingStore: "/assets/generated/ad-clothing.dim_1080x1080.jpg",
-  pharmacy: "/assets/generated/ad-pharmacy.dim_1080x1080.jpg",
-  electronicsStore: "/assets/generated/ad-electronics.dim_1080x1080.jpg",
-  bakery: "/assets/generated/ad-bakery.dim_1080x1080.jpg",
-  salon: "/assets/generated/ad-salon.dim_1080x1080.jpg",
-  retail: "/assets/generated/ad-retail.dim_1080x1080.jpg",
-  carDealer: "/assets/generated/ad-car-dealer.dim_1080x1080.jpg",
+const AD_IMAGES: Record<string, string[]> = {
+  barberShop: ["/assets/generated/ad-barbershop.dim_1080x1080.jpg"],
+  cafe: [
+    "/assets/generated/ad-cafe.dim_1080x1080.jpg",
+    "/assets/generated/ad-cafe-v2.dim_1080x1080.jpg",
+  ],
+  gym: [
+    "/assets/generated/ad-gym.dim_1080x1080.jpg",
+    "/assets/generated/ad-gym-v2.dim_1080x1080.jpg",
+  ],
+  restaurant: [
+    "/assets/generated/ad-restaurant.dim_1080x1080.jpg",
+    "/assets/generated/ad-restaurant-v2.dim_1080x1080.jpg",
+  ],
+  clothingStore: ["/assets/generated/ad-clothing.dim_1080x1080.jpg"],
+  pharmacy: ["/assets/generated/ad-pharmacy.dim_1080x1080.jpg"],
+  electronicsStore: ["/assets/generated/ad-electronics.dim_1080x1080.jpg"],
+  bakery: [
+    "/assets/generated/ad-bakery.dim_1080x1080.jpg",
+    "/assets/generated/ad-bakery-v2.dim_1080x1080.jpg",
+  ],
+  salon: ["/assets/generated/ad-salon.dim_1080x1080.jpg"],
+  retail: ["/assets/generated/ad-retail.dim_1080x1080.jpg"],
+  carDealer: [
+    "/assets/generated/ad-car-dealer.dim_1080x1080.jpg",
+    "/assets/generated/ad-car-dealer-v2.dim_1080x1080.jpg",
+  ],
 };
+
+function pickAdImage(
+  businessType: string,
+  exclude?: string | null,
+): string | null {
+  const variants = AD_IMAGES[businessType];
+  if (!variants || variants.length === 0) return null;
+  if (variants.length === 1) return variants[0];
+  // Try to pick a different variant from the currently shown one
+  const available = exclude ? variants.filter((v) => v !== exclude) : variants;
+  const pool = available.length > 0 ? available : variants;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 const BUSINESS_TYPE_LABELS: Record<string, string> = {
   gym: "🏋️ Gimnasio",
@@ -1257,6 +1286,7 @@ export default function App() {
   const [adImageUrl, setAdImageUrl] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [generatedPrompt, setGeneratedPrompt] = useState<string>("");
 
   const handleGenerateAd = async (data?: FormData) => {
     const fd = data ?? formData;
@@ -1269,17 +1299,28 @@ export default function App() {
     setIsLoading(true);
     setError("");
 
+    // Build and briefly display the smart AI prompt
+    const aiPrompt = buildAdPrompt(
+      fd.businessName,
+      fd.businessType,
+      fd.city,
+      fd.promotion,
+    );
+    setGeneratedPrompt(aiPrompt);
+
     await new Promise((resolve) => setTimeout(resolve, 600));
 
     try {
       const ad = generateAd(fd);
       setGeneratedAd(ad);
       setView("result");
+      // Pick a random image variant
+      const selectedImage = pickAdImage(fd.businessType);
       // Save to localStorage (fallback)
       saveAdToStorage({
         id: Date.now().toString(),
         businessName: fd.businessName || fd.businessType,
-        imageUrl: AD_IMAGES[fd.businessType] ?? null,
+        imageUrl: selectedImage,
         captionShort: ad.short,
         captionLong: ad.long,
         platform: fd.platform,
@@ -1290,7 +1331,7 @@ export default function App() {
         try {
           await actor!.saveAd({
             businessName: fd.businessName || fd.businessType,
-            imageUrl: AD_IMAGES[fd.businessType] ?? undefined,
+            imageUrl: selectedImage ?? undefined,
             captionShort: ad.short,
             captionLong: ad.long,
             platform: fd.platform,
@@ -1316,7 +1357,7 @@ export default function App() {
       }
       setIsGeneratingImage(true);
       setTimeout(() => {
-        setAdImageUrl(AD_IMAGES[fd.businessType] ?? null);
+        setAdImageUrl(selectedImage);
         setIsGeneratingImage(false);
       }, 1200);
     } catch (err) {
@@ -1339,6 +1380,15 @@ export default function App() {
     setError("");
     setVariations(null);
 
+    // Refresh the AI prompt
+    const aiPrompt = buildAdPrompt(
+      formData.businessName,
+      formData.businessType,
+      formData.city,
+      formData.promotion,
+    );
+    setGeneratedPrompt(aiPrompt);
+
     await new Promise((resolve) => setTimeout(resolve, 600));
 
     try {
@@ -1347,7 +1397,9 @@ export default function App() {
       setAdImageUrl(null);
       setIsGeneratingImage(true);
       setTimeout(() => {
-        setAdImageUrl(AD_IMAGES[formData.businessType] ?? null);
+        // Pick a different variant from current
+        const newImage = pickAdImage(formData.businessType, adImageUrl);
+        setAdImageUrl(newImage);
         setIsGeneratingImage(false);
       }, 1200);
     } catch (err) {
@@ -1442,6 +1494,7 @@ export default function App() {
     setVariations(null);
     setAdImageUrl(null);
     setIsGeneratingImage(false);
+    setGeneratedPrompt("");
     setView("landing");
   };
 
@@ -1615,6 +1668,7 @@ export default function App() {
                 userName={userName}
                 onLogout={handleLogout}
                 onFeedback={() => setShowFeedbackModal(true)}
+                generatedPrompt={generatedPrompt}
               />
             </motion.div>
           )}
@@ -3188,6 +3242,61 @@ function InstagramPreviewCard({
 }
 
 /* ═══════════════════════════════════════
+   AI PROMPT CHIP COMPONENT
+═══════════════════════════════════════ */
+
+function AiPromptChip({ prompt }: { prompt: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0, transition: { duration: 0.35 } }}
+      className="flex flex-col gap-1.5"
+    >
+      <button
+        type="button"
+        data-ocid="result.ai_prompt_toggle"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded-full self-start transition-all duration-200"
+        style={{
+          background: "oklch(0.62 0.22 270 / 0.10)",
+          border: "1px solid oklch(0.62 0.22 270 / 0.25)",
+          color: "oklch(0.80 0.14 270)",
+        }}
+      >
+        <Sparkles className="w-3 h-3" />
+        <span className="text-[10px] font-semibold font-body tracking-wide uppercase">
+          ✨ AI Prompt Used
+        </span>
+        <span className="text-[11px] opacity-70">{expanded ? "▲" : "▼"}</span>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="px-3 py-2.5 rounded-xl text-[11px] font-body leading-relaxed"
+              style={{
+                background: "oklch(0.62 0.22 270 / 0.07)",
+                border: "1px solid oklch(0.62 0.22 270 / 0.18)",
+                color: "oklch(0.75 0.06 260)",
+              }}
+            >
+              <span className="font-semibold text-primary/80">Prompt:</span>{" "}
+              {prompt}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════
    RESULT VIEW
 ═══════════════════════════════════════ */
 
@@ -3216,6 +3325,7 @@ interface ResultViewProps {
   userName?: string;
   onLogout?: () => void;
   onFeedback?: () => void;
+  generatedPrompt?: string;
 }
 
 function ResultView({
@@ -3243,6 +3353,7 @@ function ResultView({
   userName,
   onLogout,
   onFeedback,
+  generatedPrompt,
 }: ResultViewProps) {
   const hashtagString =
     BUSINESS_DATA[formData.businessType]?.hashtags ?? "#Negocio #Ofertas";
@@ -3417,6 +3528,9 @@ function ResultView({
           adText={previewText}
           platform={formData.platform}
         />
+
+        {/* ── AI Prompt Chip ── */}
+        {generatedPrompt && <AiPromptChip prompt={generatedPrompt} />}
 
         {/* ── AI Generated Image ── */}
         <motion.div
